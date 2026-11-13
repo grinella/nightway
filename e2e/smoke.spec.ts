@@ -6,6 +6,7 @@ test("la mappa carica con l'attribuzione OpenStreetMap visibile", async ({ page 
   await page.goto("/");
   await expect(page.locator(".leaflet-control-attribution")).toContainText("OpenStreetMap");
   await expect(page.locator(".leaflet-control-attribution")).toBeInViewport();
+  await expect(page.locator(".leaflet-control-attribution")).toHaveCSS("background-color", "rgb(18, 24, 38)");
   const scrollsSideways = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
   expect(scrollsSideways).toBe(false);
 });
