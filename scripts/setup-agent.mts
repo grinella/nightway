@@ -72,7 +72,9 @@ const agent = {
     },
     // Alice: voce predefinita verificata per l'italiano.
     tts: { voice_id: process.env.ELEVENLABS_VOICE_ID || "Xb7hH8MSUJpSbSDYk0k2" },
-    conversation: { max_duration_seconds: 600 },
+    // Tetto ai consumi: una conversazione dura al massimo 4 minuti e si chiude dopo 30 secondi di silenzio.
+    conversation: { max_duration_seconds: 240 },
+    turn: { silence_end_call_timeout: 30 },
   },
   // Agente privato: il browser riceve un token a tempo dal nostro server, la chiave non esce mai.
   platform_settings: { auth: { enable_auth: true } },
