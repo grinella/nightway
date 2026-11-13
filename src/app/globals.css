@@ -64,6 +64,11 @@ a {
   font-family: var(--font-sans);
 }
 
+/* Con viewport-fit=cover i controlli in alto restano sotto notch e barra di stato. */
+div.leaflet-container .leaflet-top {
+  top: env(safe-area-inset-top);
+}
+
 div.leaflet-container .leaflet-control-attribution {
   background: var(--color-panel);
   color: var(--color-dim);

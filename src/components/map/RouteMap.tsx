@@ -3,7 +3,7 @@
 import "leaflet/dist/leaflet.css";
 import { divIcon, type LatLngBoundsExpression, type LatLngExpression } from "leaflet";
 import { useEffect } from "react";
-import { CircleMarker, MapContainer, Marker, Polyline, Rectangle, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import { AttributionControl, CircleMarker, MapContainer, Marker, Polyline, Rectangle, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import { PILOT } from "@/lib/config";
 import type { LonLat } from "@/lib/geo/planar";
 import { LIT_STYLE, TILES } from "@/lib/map-config";
@@ -16,6 +16,8 @@ type Props = {
   result: RoutesResponse | null;
   selectedRouteId: string | null;
   showLayer: boolean;
+  /** Su telefono: il pannello è alzato e copre la parte bassa della mappa. */
+  sheetOpen: boolean;
   onPick: (point: LatLon) => void;
   onSelectRoute: (id: string) => void;
 };
@@ -33,25 +35,31 @@ function ClickToPick({ onPick }: Pick<Props, "onPick">) {
 }
 
 /** Inquadra i percorsi quando arriva una nuova analisi. */
-function FitToRoutes({ result }: Pick<Props, "result">) {
+function FitToRoutes({ result, sheetOpen }: Pick<Props, "result" | "sheetOpen">) {
   const map = useMap();
   useEffect(() => {
     const points = result?.routes.flatMap((route) => route.geometry.coordinates.map(toLatLng)) ?? [];
-    if (points.length) map.fitBounds(points as LatLngBoundsExpression, { padding: [48, 48] });
-  }, [map, result]);
+    if (!points.length) return;
+    // Su telefono il pannello copre la parte bassa della mappa: i percorsi vanno inquadrati sopra.
+    const mobile = window.matchMedia("(max-width: 1023px)").matches;
+    const covered = mobile ? (sheetOpen ? window.innerHeight * 0.62 : 130) : 0;
+    map.fitBounds(points as LatLngBoundsExpression, { paddingTopLeft: [40, 56], paddingBottomRight: [40, covered + 40] });
+  }, [map, result, sheetOpen]);
   return null;
 }
 
-export default function RouteMap({ origin, destination, result, selectedRouteId, showLayer, onPick, onSelectRoute }: Props) {
+export default function RouteMap({ origin, destination, result, selectedRouteId, showLayer, sheetOpen, onPick, onSelectRoute }: Props) {
   const routes = result?.routes ?? [];
   const selected = routes.find((route) => route.id === selectedRouteId);
 
   return (
-    <MapContainer bounds={PILOT_BOUNDS} maxBounds={MAX_BOUNDS} minZoom={14} className="h-full w-full" attributionControl>
+    <MapContainer bounds={PILOT_BOUNDS} maxBounds={MAX_BOUNDS} minZoom={14} className="h-full w-full" attributionControl={false}>
+      {/* In alto: su telefono il pannello copre il bordo inferiore e l'attribuzione deve restare visibile. */}
+      <AttributionControl position="topright" prefix={false} />
       <TileLayer url={TILES.url} attribution={TILES.attribution} />
       <Rectangle bounds={PILOT_BOUNDS} pathOptions={{ color: "#a3aec4", weight: 1, dashArray: "2 6", fill: false, interactive: false }} />
       <ClickToPick onPick={onPick} />
-      <FitToRoutes result={result} />
+      <FitToRoutes result={result} sheetOpen={sheetOpen} />
 
       {showLayer &&
         result?.layer.litWays.map((way, i) => (

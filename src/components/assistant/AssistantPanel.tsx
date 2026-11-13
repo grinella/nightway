@@ -155,7 +155,7 @@ function Assistant({ origin, destination, result, onAnalysis }: Props) {
 
       <div className="flex flex-wrap items-center gap-3">
         {connected ? (
-          <button type="button" onClick={() => conversation.endSession()} className="rounded-control border border-line px-3 py-2 hover:bg-raised">
+          <button type="button" onClick={() => conversation.endSession()} className="min-h-11 rounded-control border border-line px-3 py-2 hover:bg-raised">
             Termina la conversazione
           </button>
         ) : (
@@ -163,7 +163,7 @@ function Assistant({ origin, destination, result, onAnalysis }: Props) {
             type="button"
             onClick={() => start("voice")}
             disabled={busy}
-            className="rounded-control bg-sodium px-4 py-2 font-bold text-night hover:bg-ink disabled:opacity-50"
+            className="min-h-11 rounded-control bg-sodium px-4 py-2 font-bold text-night hover:bg-ink disabled:opacity-50"
           >
             Parla con l&apos;assistente
           </button>
@@ -183,7 +183,7 @@ function Assistant({ origin, destination, result, onAnalysis }: Props) {
                 type="button"
                 onClick={() => ask(suggestion)}
                 disabled={busy}
-                className="w-full rounded-control border border-line px-3 py-2 text-left text-sm hover:bg-raised disabled:opacity-60"
+                className="min-h-11 w-full rounded-control border border-line px-3 py-2 text-left text-sm hover:bg-raised disabled:opacity-60"
               >
                 {suggestion}
               </button>
@@ -223,12 +223,12 @@ function Assistant({ origin, destination, result, onAnalysis }: Props) {
           onChange={(event) => setDraft(event.target.value)}
           maxLength={500}
           placeholder="Es. da Porta San Paolo al Mattatoio"
-          className="min-w-0 flex-1 rounded-control border border-line bg-raised px-3 py-2 placeholder:text-dim"
+          className="min-h-11 min-w-0 flex-1 rounded-control border border-line bg-raised px-3 py-2 placeholder:text-dim"
         />
         <button
           type="submit"
           disabled={busy || !draft.trim()}
-          className="rounded-control border border-line px-4 py-2 font-bold hover:bg-raised disabled:opacity-50"
+          className="min-h-11 rounded-control border border-line px-4 py-2 font-bold hover:bg-raised disabled:opacity-50"
         >
           Invia
         </button>

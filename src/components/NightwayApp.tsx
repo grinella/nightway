@@ -7,6 +7,7 @@ import { EvidenceLegend } from "@/components/routes/EvidenceLegend";
 import { RouteComparison } from "@/components/routes/RouteComparison";
 import { postJson } from "@/lib/api-client";
 import { PILOT } from "@/lib/config";
+import { formatDistance, formatMinutes } from "@/lib/format";
 import { EXAMPLES } from "@/lib/map-config";
 import type { LatLon } from "@/lib/routing/types";
 import type { RoutesResponse } from "@/lib/schemas/routes";
@@ -17,15 +18,29 @@ const RouteMap = dynamic(() => import("@/components/map/RouteMap"), {
 });
 
 type Status = { kind: "idle" } | { kind: "loading" } | { kind: "error"; message: string };
+type Tab = "routes" | "assistant" | "info";
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: "routes", label: "Percorsi" },
+  { id: "assistant", label: "Assistente" },
+  { id: "info", label: "Legenda" },
+];
 
 const { south, west, north, east } = PILOT.bbox;
 const inPilot = (p: LatLon) => p.lat >= south && p.lat <= north && p.lon >= west && p.lon <= east;
 
-function instruction(origin: LatLon | null, destination: LatLon | null, status: Status) {
+/** Riga di stato sempre visibile: su telefono è ciò che resta quando il pannello è abbassato. */
+function statusLine(origin: LatLon | null, destination: LatLon | null, status: Status, result: RoutesResponse | null, selectedId: string | null) {
   if (status.kind === "loading") return "Calcolo i percorsi e leggo i dati della mappa…";
-  if (!origin) return "Tocca la mappa per scegliere il punto di partenza (A).";
+  if (result) {
+    const index = Math.max(0, result.routes.findIndex((route) => route.id === selectedId));
+    const route = result.routes[index];
+    const count = result.routes.length === 1 ? "1 percorso" : `${result.routes.length} percorsi`;
+    return `${count} · Percorso ${index + 1}: ${formatDistance(route.distanceMeters)}, ${formatMinutes(route.durationSeconds)}`;
+  }
+  if (!origin) return "Tocca la mappa per scegliere la partenza (A).";
   if (!destination) return "Ora tocca il punto di arrivo (B).";
-  return "Tocca di nuovo la mappa per scegliere una nuova partenza.";
+  return "Tocca la mappa per scegliere una nuova partenza.";
 }
 
 export function NightwayApp() {
@@ -35,11 +50,17 @@ export function NightwayApp() {
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const [showLayer, setShowLayer] = useState(true);
+  const [tab, setTab] = useState<Tab>("routes");
+  const [sheetOpen, setSheetOpen] = useState(true);
+
+  /** Su telefono ogni blocco appartiene a una scheda; su schermi larghi si vedono tutti. */
+  const inTab = (name: Tab) => (tab === name ? "" : "max-lg:hidden");
 
   function showAnalysis(analysis: RoutesResponse) {
     setResult(analysis);
     setSelectedRouteId(analysis.routes[0]?.id ?? null);
     setStatus({ kind: "idle" });
+    setSheetOpen(true);
   }
 
   async function analyze(from: LatLon, to: LatLon) {
@@ -50,6 +71,7 @@ export function NightwayApp() {
     setStatus({ kind: "loading" });
     try {
       showAnalysis(await postJson<RoutesResponse>("/api/routes", { origin: from, destination: to }));
+      setTab("routes");
     } catch (cause) {
       setStatus({ kind: "error", message: cause instanceof Error ? cause.message : "Analisi non riuscita." });
     }
@@ -70,6 +92,8 @@ export function NightwayApp() {
     setResult(null);
     setSelectedRouteId(null);
     setStatus({ kind: "idle" });
+    // Lascia libera la mappa per scegliere l'arrivo.
+    setSheetOpen(false);
   }
 
   /** L'assistente ha calcolato dei percorsi: allinea mappa e pannello alla sua analisi. */
@@ -85,75 +109,117 @@ export function NightwayApp() {
   }
 
   return (
-    <div className="grid lg:h-dvh lg:grid-cols-[26rem_1fr]">
-      <main className="grid content-start gap-6 border-line bg-panel p-4 max-lg:order-2 max-lg:border-t sm:p-5 lg:overflow-y-auto lg:border-r">
-        <header>
-          <h1 className="text-[1.375rem] font-bold">NIGHTWAY</h1>
-          <p className="mt-1 text-dim">
-            Confronta i percorsi a piedi su ciò che la mappa documenta, e vedi dove i dati mancano. Area pilota: {PILOT.name}.
+    <div className="max-lg:h-dvh max-lg:overflow-hidden lg:grid lg:h-dvh lg:grid-cols-[26rem_1fr]">
+      <main
+        className={`flex flex-col bg-panel max-lg:fixed max-lg:inset-x-0 max-lg:bottom-0 max-lg:z-[1100] max-lg:rounded-t-2xl max-lg:border-t max-lg:border-line max-lg:pb-[env(safe-area-inset-bottom)] lg:overflow-y-auto lg:border-r lg:border-line ${sheetOpen ? "max-lg:h-[62dvh]" : ""}`}
+      >
+        <div className="shrink-0 px-4 pt-2 sm:px-5 lg:pt-5">
+          <button
+            type="button"
+            aria-expanded={sheetOpen}
+            aria-controls="panel-body"
+            onClick={() => setSheetOpen(!sheetOpen)}
+            className="mx-auto mb-1 grid h-8 w-full place-items-center lg:hidden"
+          >
+            <span className="h-1 w-10 rounded-full bg-line" aria-hidden="true" />
+            <span className="sr-only">{sheetOpen ? "Abbassa il pannello" : "Alza il pannello"}</span>
+          </button>
+          <div className="flex items-baseline justify-between gap-3">
+            <h1 className="text-lg font-bold lg:text-[1.375rem]">NIGHTWAY</h1>
+            <span className="text-sm text-dim lg:hidden">{PILOT.name}</span>
+          </div>
+          <p aria-live="polite" className="mt-1 pb-3">
+            {statusLine(origin, destination, status, result, selectedRouteId)}
           </p>
-        </header>
-
-        <section aria-labelledby="pick-title" className="grid gap-3">
-          <h2 id="pick-title" className="font-bold">
-            Partenza e arrivo
-          </h2>
-          <p aria-live="polite">{instruction(origin, destination, status)}</p>
           {status.kind === "error" && (
-            <p role="alert" className="rounded-control border border-alert px-3 py-2 text-alert">
+            <p role="alert" className="mb-3 rounded-control border border-alert px-3 py-2 text-alert">
               {status.message}
             </p>
           )}
-          <div className="grid gap-2">
-            <p className="text-sm text-dim">Oppure prova un tragitto tra luoghi reali della zona:</p>
-            {EXAMPLES.map((example) => (
+        </div>
+
+        <div id="panel-body" className={`flex min-h-0 flex-1 flex-col ${sheetOpen ? "" : "max-lg:hidden"}`}>
+          <div role="tablist" aria-label="Sezioni" className="grid shrink-0 grid-cols-3 border-y border-line lg:hidden">
+            {TABS.map(({ id, label }) => (
               <button
-                key={example.label}
+                key={id}
                 type="button"
-                disabled={status.kind === "loading"}
-                onClick={() => analyze(example.origin, example.destination)}
-                className="rounded-control border border-line px-3 py-2 text-left text-sm hover:bg-raised disabled:opacity-60"
+                role="tab"
+                aria-selected={tab === id}
+                onClick={() => setTab(id)}
+                className={`min-h-11 border-b-2 text-sm ${tab === id ? "border-sodium font-bold text-ink" : "border-transparent text-dim"}`}
               >
-                {example.label}
+                {label}
               </button>
             ))}
           </div>
-        </section>
 
-        {result && <RouteComparison result={result} selectedRouteId={selectedRouteId} onSelect={setSelectedRouteId} />}
+          <div className="grid content-start gap-6 overscroll-contain p-4 max-lg:min-h-0 max-lg:flex-1 max-lg:overflow-y-auto sm:p-5 lg:pt-2">
+            <p className={`text-dim ${inTab("info")}`}>
+              Confronta i percorsi a piedi su ciò che la mappa documenta, e vedi dove i dati mancano. Area pilota: {PILOT.name}.
+            </p>
 
-        <AssistantPanel origin={origin} destination={destination} result={result} onAnalysis={adoptAgentAnalysis} />
+            {result && (
+              <div className={inTab("routes")}>
+                <RouteComparison result={result} selectedRouteId={selectedRouteId} onSelect={setSelectedRouteId} />
+              </div>
+            )}
 
-        <div className="grid gap-3">
-          <EvidenceLegend />
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={showLayer} onChange={(event) => setShowLayer(event.target.checked)} className="size-4 accent-sodium" />
-            Mostra anche i dati mappati attorno ai percorsi
-          </label>
+            <section aria-labelledby="pick-title" className={`grid gap-2 ${inTab("routes")}`}>
+              <h2 id="pick-title" className="font-bold">
+                {result ? "Prova un altro tragitto" : "Prova un tragitto"}
+              </h2>
+              <p className="text-sm text-dim">Scegli due punti sulla mappa, oppure parti da luoghi reali della zona:</p>
+              {EXAMPLES.map((example) => (
+                <button
+                  key={example.label}
+                  type="button"
+                  disabled={status.kind === "loading"}
+                  onClick={() => analyze(example.origin, example.destination)}
+                  className="min-h-11 rounded-control border border-line px-3 py-2 text-left text-sm hover:bg-raised disabled:opacity-60"
+                >
+                  {example.label}
+                </button>
+              ))}
+            </section>
+
+            <div className={inTab("assistant")}>
+              <AssistantPanel origin={origin} destination={destination} result={result} onAnalysis={adoptAgentAnalysis} />
+            </div>
+
+            <div className={`grid gap-3 ${inTab("info")}`}>
+              <EvidenceLegend />
+              <label className="flex min-h-11 items-center gap-2 text-sm">
+                <input type="checkbox" checked={showLayer} onChange={(event) => setShowLayer(event.target.checked)} className="size-4 accent-sodium" />
+                Mostra anche i dati mappati attorno ai percorsi
+              </label>
+            </div>
+
+            <footer className={`border-t border-line pt-4 text-sm text-dim ${inTab("info")}`}>
+              <p>
+                NIGHTWAY non valuta la sicurezza personale e non prevede reati: mostra caratteristiche ambientali documentate e i loro limiti. La
+                scelta del percorso resta tua.
+              </p>
+              <p className="mt-2">
+                Dati © contributori di{" "}
+                <a href="https://www.openstreetmap.org/copyright" className="text-ink underline underline-offset-2">
+                  OpenStreetMap
+                </a>{" "}
+                (ODbL). Routing: Valhalla. Nessun account, nessun tragitto salvato.
+              </p>
+            </footer>
+          </div>
         </div>
-
-        <footer className="border-t border-line pt-4 text-sm text-dim">
-          <p>
-            NIGHTWAY non valuta la sicurezza personale e non prevede reati: mostra caratteristiche ambientali documentate e i loro limiti. La scelta
-            del percorso resta tua.
-          </p>
-          <p className="mt-2">
-            Dati © contributori di{" "}
-            <a href="https://www.openstreetmap.org/copyright" className="text-ink underline underline-offset-2">
-              OpenStreetMap
-            </a>{" "}
-            (ODbL). Routing: Valhalla. Nessun account, nessun tragitto salvato.
-          </p>
-        </footer>
       </main>
 
-      <div className="h-[52svh] max-lg:order-1 lg:h-auto">
+      <div className="max-lg:fixed max-lg:inset-0 lg:order-2">
         <RouteMap
           origin={origin}
           destination={destination}
           result={result}
           selectedRouteId={selectedRouteId}
           showLayer={showLayer}
+          sheetOpen={sheetOpen}
           onPick={pick}
           onSelectRoute={setSelectedRouteId}
         />
