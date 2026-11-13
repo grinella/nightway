@@ -1,6 +1,6 @@
 # NIGHTWAY
 
-Confronta percorsi pedonali a Roma sulle **caratteristiche ambientali documentate** su OpenStreetMap — illuminazione dichiarata, punti luce mappati, infrastruttura pedonale, servizi mappati — e mostra con la stessa evidenza **dove i dati mancano**. Un assistente (Claude) risponde alle domande usando solo quei dati, anche a voce.
+Confronta percorsi pedonali a Roma sulle **caratteristiche ambientali documentate** su OpenStreetMap — illuminazione dichiarata, punti luce mappati, infrastruttura pedonale, servizi mappati — e mostra con la stessa evidenza **dove i dati mancano**. Un assistente vocale (agente ElevenLabs) risponde alle domande usando solo quei dati, a voce o in chat.
 
 Progetto per [AgenticHack Rome](https://agentic.urbe.build/), 13–14 novembre 2026. Area pilota: **Testaccio / Ostiense**.
 
@@ -18,11 +18,12 @@ Progetto per [AgenticHack Rome](https://agentic.urbe.build/), 13–14 novembre 2
 
 ```bash
 npm install
-cp .env.example .env.local   # aggiungi le chiavi per assistente e voce
+cp .env.example .env.local   # aggiungi ELEVENLABS_API_KEY
+npm run agent:setup          # crea l'agente su ElevenAgents e stampa ELEVENLABS_AGENT_ID
 npm run dev                  # http://localhost:3000
 ```
 
-Routing e mappa funzionano senza chiavi. `ANTHROPIC_API_KEY` attiva l'assistente, `ELEVENLABS_API_KEY` la lettura vocale.
+Routing e mappa funzionano senza chiavi. `ELEVENLABS_API_KEY` attiva la lettura vocale del confronto; insieme a `ELEVENLABS_AGENT_ID` attiva l'assistente.
 
 | Comando | Cosa fa |
 |---|---|
@@ -30,6 +31,7 @@ Routing e mappa funzionano senza chiavi. `ANTHROPIC_API_KEY` attiva l'assistente
 | `npm run e2e` | Smoke test Playwright a 375 / 768 / 1024 / 1440 px (usa i provider reali) |
 | `npm run typecheck` · `npm run lint` | Controlli statici |
 | `npm run audit` | Rigenera `docs/AUDIT.md` dall'estrazione salvata (`-- --live` per interrogare Overpass) |
+| `npm run agent:setup` | Crea o aggiorna l'agente e i suoi strumenti su ElevenAgents (prompt in `src/lib/agent/prompt.ts`) |
 | `npm run snapshot` | Aggiorna `data/pilot-snapshot.json` con un'estrazione Overpass datata |
 
 ## Come sono calcolati i numeri
@@ -57,8 +59,10 @@ Secondo l'audit (`docs/AUDIT.md`) nell'area pilota il tag `lit` copre circa il 4
 ```text
 Browser (Next.js + Leaflet)
    ├─ POST /api/routes  {origin, destination}
-   ├─ POST /api/agent   {messages}          → Claude + strumenti sugli stessi dati
-   └─ POST /api/speak   {text}              → ElevenLabs
+   ├─ POST /api/places  {query}             → luoghi con nome nei dati OSM dell'area
+   ├─ POST /api/agent/session {mode}        → credenziale a tempo per l'agente ElevenAgents
+   ├─ POST /api/speak   {text}              → sintesi vocale ElevenLabs
+   └─ agente ElevenAgents (voce WebRTC o chat) ⇄ strumenti eseguiti nel browser
 Route handler (Zod, rate limit, timeout)
    ├─ lib/routing/valhalla      percorsi pedonali, polyline6
    ├─ lib/osm/{overpass,dataset} una query per l'area, cache, più endpoint, snapshot di riserva
@@ -67,7 +71,7 @@ Route handler (Zod, rate limit, timeout)
    └─ lib/vision                 interfaccia + provider noop (disattivato)
 ```
 
-L'assistente usa tre strumenti: `find_place` (cerca luoghi per nome nei dati OSM dell'area), `compare_routes` (la stessa pipeline dell'API) e `route_streets` (evidenze strada per strada).
+L'assistente è un agente ElevenAgents (modello linguistico ospitato da ElevenLabs, voce italiana) con tre strumenti eseguiti nel browser: `find_place` (cerca luoghi per nome nei dati OSM dell'area), `compare_routes` (la stessa pipeline dell'API, e disegna i percorsi sulla mappa) e `route_streets` (evidenze strada per strada). L'agente è privato: il browser ottiene dal server una credenziale a tempo, la chiave non esce mai.
 
 ## Dati, provider e limiti
 
@@ -75,7 +79,7 @@ L'assistente usa tre strumenti: `find_place` (cerca luoghi per nome nei dati OSM
 - **Evidenze:** OpenStreetMap via Overpass, © contributori di OpenStreetMap, licenza ODbL. Se Overpass non risponde entro 6 secondi l'app usa l'estrazione salvata in `data/pilot-snapshot.json` e lo dichiara nell'interfaccia con la data.
 - **Mappa:** tile standard di OpenStreetMap, scurite via CSS; adatte a una demo, non a traffico elevato.
 - **Vision:** interfaccia `VisionProvider` e flag `VISION_ENABLED` predisposti; nessun adapter Mapillary è collegato perché endpoint, classi, licenze e copertura non sono stati verificati con un token. L'app mostra «dati visivi non disponibili».
-- **Privacy:** nessun account, nessun tragitto salvato, coordinate mai scritte nei log. Le domande all'assistente (con i punti selezionati) vengono inviate ad Anthropic, il testo da leggere a ElevenLabs.
+- **Privacy:** nessun account, nessun tragitto salvato, coordinate mai scritte nei log. Voce, domande all'assistente (con i punti selezionati) e testo da leggere sono elaborati da ElevenLabs.
 - **Rate limit:** in memoria per istanza, sufficiente per la demo.
 - **Layer ufficiale dei lampioni di Roma (Geoportale):** non verificato; non è usato.
 - Rispetto alla specifica: la geometria usa una proiezione piana locale invece di Turf.js (pochi km, calcoli più semplici e testabili); il geocoder esterno è sostituito dalla ricerca per nome nei dati OSM dell'area.

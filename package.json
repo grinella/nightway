@@ -11,10 +11,11 @@
     "typecheck": "tsc --noEmit",
     "snapshot": "tsx scripts/snapshot.mts",
     "audit": "tsx scripts/audit.mts",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "agent:setup": "tsx --env-file=.env.local scripts/setup-agent.mts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^1.8.0",
+    "@elevenlabs/react": "^1.22.1",
     "leaflet": "^1.9.4",
     "next": "16.4.6",
     "react": "19.3.0",

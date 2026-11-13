@@ -1,13 +1,22 @@
 "use client";
 
-import { useState } from "react";
-import { SpeakButton } from "@/components/SpeakButton";
+import { ConversationProvider, useConversation, type ClientTools } from "@elevenlabs/react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AGENT_FIRST_MESSAGE } from "@/lib/agent/prompt";
+import { streetRuns, summarizeAnalysis } from "@/lib/agent/summaries";
 import { postJson } from "@/lib/api-client";
-import type { AgentReply, ChatMessage } from "@/lib/agent/run";
 import type { LatLon } from "@/lib/routing/types";
+import type { AgentSession } from "@/lib/schemas/agent";
 import type { RoutesResponse } from "@/lib/schemas/routes";
 
-type Props = { origin: LatLon | null; destination: LatLon | null; onAnalysis: (analysis: RoutesResponse) => void };
+type Props = {
+  origin: LatLon | null;
+  destination: LatLon | null;
+  result: RoutesResponse | null;
+  onAnalysis: (analysis: RoutesResponse) => void;
+};
+
+type Line = { role: "user" | "agent"; text: string };
 
 const SUGGESTIONS = [
   "Vado dalla metro Piramide alla Città dell'Altra Economia: cosa dicono i dati sui percorsi?",
@@ -15,37 +24,123 @@ const SUGGESTIONS = [
 ];
 
 const fmt = (p: LatLon) => `${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}`;
+const mapContext = (origin: LatLon, destination: LatLon) => `[Punti selezionati sulla mappa — A: ${fmt(origin)}; B: ${fmt(destination)}]`;
+const failure = (cause: unknown, fallback: string) => JSON.stringify({ error: cause instanceof Error ? cause.message : fallback });
 
-/** I punti scelti sulla mappa accompagnano la domanda, così l'assistente non deve chiederli. */
-function withMapContext(question: string, origin: LatLon | null, destination: LatLon | null) {
-  if (!origin || !destination) return question;
-  return `${question}\n\n[Punti selezionati sulla mappa — A: ${fmt(origin)}; B: ${fmt(destination)}]`;
+/** Strumenti che l'agente esegue nel browser: interrogano le API di NIGHTWAY e aggiornano la mappa. */
+function useAgentTools(result: RoutesResponse | null, onAnalysis: Props["onAnalysis"]): ClientTools {
+  const latest = useRef({ result, onAnalysis });
+  useEffect(() => {
+    latest.current = { result, onAnalysis };
+  });
+
+  return useMemo<ClientTools>(
+    () => ({
+      find_place: async ({ query }) => {
+        try {
+          return JSON.stringify(await postJson("/api/places", { query }));
+        } catch (cause) {
+          return failure(cause, "Ricerca non riuscita.");
+        }
+      },
+      compare_routes: async (p) => {
+        try {
+          const analysis = await postJson<RoutesResponse>("/api/routes", {
+            origin: { lat: Number(p.origin_lat), lon: Number(p.origin_lon) },
+            destination: { lat: Number(p.destination_lat), lon: Number(p.destination_lon) },
+          });
+          latest.current.result = analysis;
+          latest.current.onAnalysis(analysis);
+          return JSON.stringify(summarizeAnalysis(analysis));
+        } catch (cause) {
+          return failure(cause, "Analisi non riuscita.");
+        }
+      },
+      route_streets: ({ route_id }) => {
+        const route = latest.current.result?.routes.find((r) => r.id === route_id);
+        return JSON.stringify(route ? { routeId: route.id, streets: streetRuns(route) } : { error: "Percorso non trovato: chiama prima compare_routes." });
+      },
+    }),
+    [],
+  );
 }
 
-export function AssistantPanel({ origin, destination, onAnalysis }: Props) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+function Assistant({ origin, destination, result, onAnalysis }: Props) {
+  const [lines, setLines] = useState<Line[]>([]);
   const [draft, setDraft] = useState("");
-  const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const [starting, setStarting] = useState(false);
+  const [mode, setMode] = useState<"voice" | "text">("text");
+  const firstMessage = useRef<string | null>(null);
+  const clientTools = useAgentTools(result, onAnalysis);
 
-  async function ask(question: string) {
-    const text = question.trim();
-    if (!text || pending) return;
-    const history = [...messages, { role: "user" as const, content: text }];
-    setMessages(history);
-    setDraft("");
+  const conversation = useConversation({
+    clientTools,
+    onMessage: ({ role, message }) =>
+      setLines((current) => {
+        const last = current[current.length - 1];
+        // In chat la domanda è già stata fatta: il saluto iniziale dell'agente sarebbe fuori posto.
+        if (role === "agent" && message === AGENT_FIRST_MESSAGE && current.length > 0) return current;
+        // I messaggi scritti sono già in elenco: evita il doppione se il servizio li rimanda indietro.
+        return last?.role === role && last.text === message ? current : [...current, { role, text: message }];
+      }),
+    onConnect: () => {
+      setStarting(false);
+      if (firstMessage.current) conversation.sendUserMessage(firstMessage.current);
+      firstMessage.current = null;
+    },
+    onDisconnect: () => setStarting(false),
+    onError: () => {
+      setStarting(false);
+      setError("La conversazione con l'assistente si è interrotta: riprova.");
+    },
+  });
+
+  const connected = conversation.status === "connected";
+  const busy = starting || conversation.status === "connecting";
+
+  // In voce i punti scelti sulla mappa arrivano all'agente come contesto, senza interrompere il dialogo.
+  useEffect(() => {
+    if (connected && origin && destination) conversation.sendContextualUpdate(mapContext(origin, destination));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `conversation` cambia a ogni render
+  }, [connected, origin, destination]);
+
+  async function start(requested: "voice" | "text") {
     setError("");
-    setPending(true);
+    setStarting(true);
+    setMode(requested);
     try {
-      const outgoing = [...messages.slice(-10), { role: "user" as const, content: withMapContext(text, origin, destination) }];
-      const reply = await postJson<AgentReply>("/api/agent", { messages: outgoing });
-      setMessages([...history, { role: "assistant", content: reply.text }]);
-      if (reply.analysis) onAnalysis(reply.analysis);
+      if (requested === "voice") {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => {
+          throw new Error("Per parlare con l'assistente serve il permesso del microfono. In alternativa scrivi la domanda.");
+        });
+        stream.getTracks().forEach((track) => track.stop());
+      }
+      const session = await postJson<AgentSession>("/api/agent/session", { mode: requested });
+      conversation.startSession(
+        "conversationToken" in session
+          ? { conversationToken: session.conversationToken, connectionType: "webrtc" }
+          : { signedUrl: session.signedUrl, connectionType: "websocket", textOnly: true },
+      );
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "L'assistente non è riuscito a rispondere.");
-    } finally {
-      setPending(false);
+      firstMessage.current = null;
+      setStarting(false);
+      setError(cause instanceof Error ? cause.message : "Non riesco ad avviare l'assistente.");
     }
+  }
+
+  function ask(question: string) {
+    const text = question.trim();
+    if (!text || busy) return;
+    setLines((current) => [...current, { role: "user", text }]);
+    setDraft("");
+    const outgoing = origin && destination ? `${text}\n\n${mapContext(origin, destination)}` : text;
+    if (connected) {
+      conversation.sendUserMessage(outgoing);
+      return;
+    }
+    firstMessage.current = outgoing;
+    start("text");
   }
 
   return (
@@ -54,18 +149,40 @@ export function AssistantPanel({ origin, destination, onAnalysis }: Props) {
         Chiedi all&apos;assistente
       </h2>
       <p className="text-sm text-dim">
-        Nomina due luoghi di Testaccio o Ostiense, oppure fai domande sui percorsi già calcolati. Risponde solo con i dati dei percorsi e di
-        OpenStreetMap; la domanda viene inviata a Claude (Anthropic) per essere elaborata.
+        Nomina due luoghi di Testaccio o Ostiense, a voce o per iscritto, oppure fai domande sui percorsi già calcolati. Risponde solo con i dati dei
+        percorsi e di OpenStreetMap; voce e domande sono elaborate da ElevenLabs.
       </p>
 
-      {messages.length === 0 && (
+      <div className="flex flex-wrap items-center gap-3">
+        {connected ? (
+          <button type="button" onClick={() => conversation.endSession()} className="rounded-control border border-line px-3 py-2 hover:bg-raised">
+            Termina la conversazione
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => start("voice")}
+            disabled={busy}
+            className="rounded-control bg-sodium px-4 py-2 font-bold text-night hover:bg-ink disabled:opacity-50"
+          >
+            Parla con l&apos;assistente
+          </button>
+        )}
+        <span aria-live="polite" className="text-sm text-dim">
+          {busy && "Mi collego…"}
+          {!busy && connected && mode === "text" && "Collegato: scrivi la tua domanda."}
+          {!busy && connected && mode === "voice" && (conversation.isSpeaking ? "Sta rispondendo…" : "In ascolto: parla o scrivi.")}
+        </span>
+      </div>
+
+      {lines.length === 0 && (
         <ul className="grid gap-2">
           {SUGGESTIONS.map((suggestion) => (
             <li key={suggestion}>
               <button
                 type="button"
                 onClick={() => ask(suggestion)}
-                disabled={pending}
+                disabled={busy}
                 className="w-full rounded-control border border-line px-3 py-2 text-left text-sm hover:bg-raised disabled:opacity-60"
               >
                 {suggestion}
@@ -76,18 +193,12 @@ export function AssistantPanel({ origin, destination, onAnalysis }: Props) {
       )}
 
       <ol aria-live="polite" className="grid gap-3">
-        {messages.map((message, i) => (
-          <li key={i} className={message.role === "user" ? "ml-6 rounded-box bg-raised px-3 py-2" : "mr-2"}>
-            <span className="sr-only">{message.role === "user" ? "Tu: " : "Assistente: "}</span>
-            <p className="whitespace-pre-wrap">{message.content}</p>
-            {message.role === "assistant" && (
-              <div className="mt-2">
-                <SpeakButton text={message.content} />
-              </div>
-            )}
+        {lines.map((line, i) => (
+          <li key={i} className={line.role === "user" ? "ml-6 rounded-box bg-raised px-3 py-2" : "mr-2"}>
+            <span className="sr-only">{line.role === "user" ? "Tu: " : "Assistente: "}</span>
+            <p className="whitespace-pre-wrap">{line.text}</p>
           </li>
         ))}
-        {pending && <li className="text-dim">Sto consultando percorsi e dati della mappa…</li>}
       </ol>
 
       {error && (
@@ -116,12 +227,20 @@ export function AssistantPanel({ origin, destination, onAnalysis }: Props) {
         />
         <button
           type="submit"
-          disabled={pending || !draft.trim()}
-          className="rounded-control bg-sodium px-4 py-2 font-bold text-night hover:bg-ink disabled:opacity-50"
+          disabled={busy || !draft.trim()}
+          className="rounded-control border border-line px-4 py-2 font-bold hover:bg-raised disabled:opacity-50"
         >
-          Chiedi
+          Invia
         </button>
       </form>
     </section>
+  );
+}
+
+export function AssistantPanel(props: Props) {
+  return (
+    <ConversationProvider>
+      <Assistant {...props} />
+    </ConversationProvider>
   );
 }

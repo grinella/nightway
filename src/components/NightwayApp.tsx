@@ -122,7 +122,7 @@ export function NightwayApp() {
 
         {result && <RouteComparison result={result} selectedRouteId={selectedRouteId} onSelect={setSelectedRouteId} />}
 
-        <AssistantPanel origin={origin} destination={destination} onAnalysis={adoptAgentAnalysis} />
+        <AssistantPanel origin={origin} destination={destination} result={result} onAnalysis={adoptAgentAnalysis} />
 
         <div className="grid gap-3">
           <EvidenceLegend />

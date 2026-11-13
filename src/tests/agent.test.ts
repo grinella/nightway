@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { findPlaces } from "@/lib/agent/places";
 import { prepare } from "@/lib/osm/dataset";
-import { agentRequestSchema } from "@/lib/schemas/agent";
+import { streetRuns } from "@/lib/agent/summaries";
+import { placesRequestSchema, sessionRequestSchema } from "@/lib/schemas/agent";
+import type { AnalyzedRoute } from "@/lib/schemas/routes";
 import { node, way } from "@/tests/fixtures";
 
 const data = prepare({
@@ -32,14 +34,33 @@ describe("ricerca dei luoghi nell'area pilota", () => {
   });
 });
 
-describe("validazione della richiesta all'assistente", () => {
-  it("accetta una conversazione che termina con l'utente", () => {
-    expect(agentRequestSchema.safeParse({ messages: [{ role: "user", content: "ciao" }] }).success).toBe(true);
+describe("riassunti per l'agente", () => {
+  const route = {
+    segments: [
+      { matched: true, streetName: "Via A", lit: "yes", walk: "sidewalk", lengthM: 30 },
+      { matched: true, streetName: "Via A", lit: "yes", walk: "sidewalk", lengthM: 30 },
+      { matched: true, streetName: "Via A", lit: "unknown", walk: "sidewalk", lengthM: 30 },
+      { matched: false, lit: "unknown", walk: "unknown", lengthM: 20 },
+    ],
+  } as AnalyzedRoute;
+
+  it("raggruppa i tratti consecutivi e tiene distinto il dato ignoto", () => {
+    expect(streetRuns(route)).toEqual([
+      { street: "Via A", lit: "yes", walk: "sidewalk", meters: 60 },
+      { street: "Via A", lit: "unknown", walk: "sidewalk", meters: 30 },
+      { street: "non agganciato a OSM", lit: "unknown", walk: "unknown", meters: 20 },
+    ]);
+  });
+});
+
+describe("validazione delle richieste dell'assistente", () => {
+  it("accetta solo le modalità voce e testo", () => {
+    expect(sessionRequestSchema.safeParse({ mode: "voice" }).success).toBe(true);
+    expect(sessionRequestSchema.safeParse({ mode: "video" }).success).toBe(false);
   });
 
-  it("rifiuta messaggi vuoti, troppo lunghi o che terminano con l'assistente", () => {
-    expect(agentRequestSchema.safeParse({ messages: [] }).success).toBe(false);
-    expect(agentRequestSchema.safeParse({ messages: [{ role: "user", content: "x".repeat(1501) }] }).success).toBe(false);
-    expect(agentRequestSchema.safeParse({ messages: [{ role: "assistant", content: "ciao" }] }).success).toBe(false);
+  it("rifiuta ricerche vuote o troppo lunghe", () => {
+    expect(placesRequestSchema.safeParse({ query: "  " }).success).toBe(false);
+    expect(placesRequestSchema.safeParse({ query: "x".repeat(121) }).success).toBe(false);
   });
 });

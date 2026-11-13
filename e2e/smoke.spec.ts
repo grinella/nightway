@@ -37,16 +37,16 @@ test("un errore del provider diventa un messaggio leggibile, non dati falsi", as
   await expect(page.getByRole("heading", { name: /disponibil/ })).toHaveCount(0);
 });
 
-test("senza chiave l'assistente dichiara di non essere configurato", async ({ page }) => {
-  await page.route("**/api/agent", (route) =>
+test("se l'assistente non è configurato lo dichiara, senza risposte inventate", async ({ page }) => {
+  await page.route("**/api/agent/session", (route) =>
     route.fulfill({
       status: 503,
       contentType: "application/json",
-      body: JSON.stringify({ error: { code: "agent_unavailable", message: "Assistente non configurato: manca ANTHROPIC_API_KEY." } }),
+      body: JSON.stringify({ error: { code: "agent_unavailable", message: "Assistente non configurato: mancano ELEVENLABS_API_KEY o ELEVENLABS_AGENT_ID." } }),
     }),
   );
   await page.goto("/");
   await page.getByLabel("Domanda per l'assistente").fill("Da Piramide al Mattatoio");
-  await page.getByRole("button", { name: "Chiedi", exact: true }).click();
+  await page.getByRole("button", { name: "Invia", exact: true }).click();
   await expect(page.getByRole("alert").filter({ hasText: "Assistente non configurato" })).toBeVisible();
 });
