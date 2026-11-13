@@ -1,6 +1,8 @@
+import { SpeakButton } from "@/components/SpeakButton";
 import { RouteDetails } from "@/components/routes/RouteDetails";
 import { formatDistance, formatMinutes, formatPercent } from "@/lib/format";
 import type { AnalyzedRoute, RoutesResponse } from "@/lib/schemas/routes";
+import { spokenSummary } from "@/lib/summary";
 
 type Props = { result: RoutesResponse; selectedRouteId: string | null; onSelect: (id: string) => void };
 
@@ -50,6 +52,7 @@ export function RouteComparison({ result, selectedRouteId, onSelect }: Props) {
       <h2 id="routes-title" className="font-bold">
         {result.routes.length === 1 ? "Un percorso disponibile" : `${result.routes.length} percorsi disponibili`}
       </h2>
+      <SpeakButton text={spokenSummary(result)} label="Ascolta il confronto" />
       {result.routes.length === 1 && <p className="text-sm text-dim">Il servizio di routing non ha proposto alternative per questi due punti.</p>}
       {result.comparisonNotes.map((note) => (
         <p key={note} className="rounded-control border border-line bg-raised px-3 py-2 text-sm">

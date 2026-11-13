@@ -67,3 +67,15 @@ describe("percorso senza dati OSM", () => {
     expect(analyzed.distanceMeters).toBe(200);
   });
 });
+
+describe("riassunto vocale", () => {
+  it("riporta i numeri dell'analisi e il limite dei dati, senza parlare di sicurezza come esito", async () => {
+    const { spokenSummary } = await import("@/lib/summary");
+    const route = analyzeRoute({ distanceMeters: 1400, durationSeconds: 1080, coordinates: [at(0, 0), at(200, 0)] }, "route-1", null);
+    const text = spokenSummary({ routes: [route], comparisonNotes: [] } as never);
+    expect(text).toContain("Un percorso disponibile.");
+    expect(text).toContain("1,4 km, circa 18 min");
+    expect(text).toContain("non è calcolabile");
+    expect(text).toMatch(/non lampioni accesi né la sicurezza/);
+  });
+});
