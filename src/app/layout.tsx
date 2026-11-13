@@ -8,6 +8,8 @@ export const metadata: Metadata = {
   title: "NIGHTWAY — confronta i percorsi a piedi su ciò che la mappa documenta",
   description:
     "Confronta percorsi pedonali a Roma (Testaccio / Ostiense) su illuminazione dichiarata, punti luce mappati e copertura dei dati OpenStreetMap. Non valuta la sicurezza personale.",
+  appleWebApp: { capable: true, title: "NIGHTWAY", statusBarStyle: "black" },
+  icons: { apple: "/apple-touch-icon.png" },
 };
 
 export const viewport: Viewport = { themeColor: "#0b0f17" };
