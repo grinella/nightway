@@ -34,6 +34,18 @@ Routing e mappa funzionano senza chiavi. `ELEVENLABS_API_KEY` attiva la lettura 
 | `npm run agent:setup` | Crea o aggiorna l'agente e i suoi strumenti su ElevenAgents (prompt in `src/lib/agent/prompt.ts`) |
 | `npm run snapshot` | Aggiorna `data/pilot-snapshot.json` con un'estrazione Overpass datata |
 
+## App sul telefono
+
+- **Dal browser:** apri il sito su iPhone (Safari → Condividi → «Aggiungi alla schermata Home») o Android (Chrome → «Installa app»).
+- **App iOS nativa:** `native/` contiene un involucro Capacitor che mostra l'app web pubblicata dentro un'app iOS, con permesso del microfono per l'assistente. Per installarla su un iPhone collegato e sbloccato:
+
+  ```bash
+  cd native && npm install && npx cap sync ios
+  npx cap open ios     # in Xcode: scegli il tuo team di firma e premi Run
+  ```
+
+  Con un account Apple gratuito l'app installata scade dopo 7 giorni e va reinstallata.
+
 ## Come sono calcolati i numeri
 
 Dettaglio in `src/lib/scoring/` e `src/lib/geo/`; le soglie sono in `src/lib/config.ts` e sono **ipotesi di prodotto, non valori calibrati**.

@@ -1,0 +1,17 @@
+{
+  "name": "nightway-native",
+  "private": true,
+  "description": "Involucro iOS di NIGHTWAY (Capacitor): carica l'app web pubblicata.",
+  "scripts": {
+    "sync": "cap sync ios",
+    "open": "cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/core": "^8.6.2",
+    "@capacitor/ios": "^8.6.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.6.2",
+    "typescript": "^7.0.2"
+  }
+}
