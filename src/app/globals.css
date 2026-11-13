@@ -1,26 +1,103 @@
 @import "tailwindcss";
 
+@theme {
+  --color-night: #0b0f17;
+  --color-panel: #121826;
+  --color-raised: #1a2233;
+  --color-line: #2a3550;
+  --color-ink: #e8ecf4;
+  --color-dim: #a3aec4;
+  --color-sodium: #ffb347;
+  --color-unknown: #8f9bb3;
+  --color-unlit: #7aa2e8;
+  --color-alert: #ff9a8a;
+  --font-sans: var(--font-atkinson), ui-sans-serif, system-ui, sans-serif;
+  --radius-box: 10px;
+  --radius-control: 8px;
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  color-scheme: dark;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-night);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
+}
+
+::selection {
+  background: var(--color-sodium);
+  color: var(--color-night);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-sodium);
+  outline-offset: 2px;
+}
+
+* {
+  scrollbar-color: var(--color-line) transparent;
+}
+
+button,
+a {
+  transition:
+    background-color 160ms ease-out,
+    border-color 160ms ease-out,
+    color 160ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+  }
+}
+
+/* Leaflet dentro il tema */
+.leaflet-container {
+  background: var(--color-night);
+  font-family: var(--font-sans);
+}
+
+div.leaflet-container .leaflet-control-attribution {
+  background: var(--color-panel);
+  color: var(--color-dim);
+  font-size: 0.75rem;
+  padding: 2px 8px;
+}
+
+div.leaflet-container .leaflet-control-attribution a {
+  color: var(--color-ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* La cartografia OSM chiara abbaglierebbe di sera: la si porta nei toni del tema. */
+.leaflet-tile-pane {
+  filter: invert(1) hue-rotate(190deg) saturate(0.35) brightness(0.72) contrast(0.92);
+}
+
+div.leaflet-container .leaflet-bar a,
+div.leaflet-container .leaflet-bar a:hover {
+  background: var(--color-panel);
+  color: var(--color-ink);
+  border-color: var(--color-line);
+}
+
+.endpoint-marker {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--color-ink);
+  color: var(--color-night);
+  font-weight: 700;
+  font-size: 0.875rem;
+  border: 2px solid var(--color-night);
 }

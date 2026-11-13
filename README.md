@@ -1,36 +1,81 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# NIGHTWAY
 
-## Getting Started
+Confronta percorsi pedonali a Roma sulle **caratteristiche ambientali documentate** su OpenStreetMap — illuminazione dichiarata, punti luce mappati, infrastruttura pedonale, servizi mappati — e mostra con la stessa evidenza **dove i dati mancano**. Un assistente (Claude) risponde alle domande usando solo quei dati, anche a voce.
 
-First, run the development server:
+Progetto per [AgenticHack Rome](https://agentic.urbe.build/), 13–14 novembre 2026. Area pilota: **Testaccio / Ostiense**.
+
+> NIGHTWAY non valuta la sicurezza personale, non prevede reati e non sa se un lampione è acceso. Mostra ciò che la mappa documenta e i limiti di quei dati.
+
+## Cosa fa
+
+1. Scegli partenza e arrivo sulla mappa, oppure nominali all'assistente («da Porta San Paolo al Mattatoio»).
+2. Valhalla calcola da 1 a 3 percorsi pedonali reali: se ne esiste uno solo, ne vedi uno solo.
+3. Ogni percorso viene diviso in tratti di circa 30 m, agganciati al way OSM percorso (distanza e direzione), e confrontato con i dati OSM dell'area.
+4. Per ogni percorso vedi distanza, durata, **Evidence Coverage** (quanta parte del tracciato ha dati) e, solo se le evidenze bastano, l'**ERS** (Environmental Route Score, sperimentale).
+5. Sulla mappa i tratti con illuminazione ignota sono disegnati tratteggiati, visibili quanto quelli noti.
+
+## Avvio
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+cp .env.example .env.local   # aggiungi le chiavi per assistente e voce
+npm run dev                  # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Routing e mappa funzionano senza chiavi. `ANTHROPIC_API_KEY` attiva l'assistente, `ELEVENLABS_API_KEY` la lettura vocale.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Comando | Cosa fa |
+|---|---|
+| `npm test` | Test unitari (Vitest): normalizzazione, coverage, ERS, matching, provider, validazione |
+| `npm run e2e` | Smoke test Playwright a 375 / 768 / 1024 / 1440 px (usa i provider reali) |
+| `npm run typecheck` · `npm run lint` | Controlli statici |
+| `npm run audit` | Rigenera `docs/AUDIT.md` dall'estrazione salvata (`-- --live` per interrogare Overpass) |
+| `npm run snapshot` | Aggiorna `data/pilot-snapshot.json` con un'estrazione Overpass datata |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Come sono calcolati i numeri
 
-## Learn More
+Dettaglio in `src/lib/scoring/` e `src/lib/geo/`; le soglie sono in `src/lib/config.ts` e sono **ipotesi di prodotto, non valori calibrati**.
 
-To learn more about Next.js, take a look at the following resources:
+| Dimensione | Peso | Valutabile dove | Punteggio |
+|---|---:|---|---|
+| Illuminazione dichiarata | 30% | il way ha il tag `lit` | `yes`/`automatic`/`24/7` = 100, `limited` = 50, `no` = 0 |
+| Punti luce mappati | 20% | strade con almeno un `street_lamp` attribuito al percorso | quota di metri entro 35 m da un punto luce |
+| Visibilità | 20% | mai, in questa versione | richiede dati 3D verificati |
+| Infrastruttura pedonale | 20% | way pedonale o tag `sidewalk` presente | pedonale/marciapiede = 100, scale = 50, `sidewalk=no` = 0 |
+| Servizi mappati | 10% | strade con almeno un servizio mappato entro 30 m | quota di metri con un servizio vicino |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- **Dato assente = ignoto.** Un tag mancante non entra nel punteggio e riduce la copertura; non vale mai zero.
+- **Evidence Coverage** = metri valutabili / metri totali per dimensione, aggregati con i pesi.
+- **ERS** = media pesata delle sole dimensioni valutabili, con pesi rinormalizzati; resta `null` sotto il 60% di copertura.
+- **Punti luce:** attribuiti solo entro 15 m dal tracciato; se un'altra strada non adiacente è più vicina al punto luce, l'attribuzione è «incerta» e non entra nei calcoli.
+- Se i percorsi hanno coperture molto diverse, l'app sconsiglia il confronto dei punteggi.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Secondo l'audit (`docs/AUDIT.md`) nell'area pilota il tag `lit` copre circa il 40% dei metri di rete e i punti luce mappati sono 162: con questi dati l'ERS resta quasi sempre «non calcolabile», ed è il comportamento voluto.
 
-## Deploy on Vercel
+## Architettura
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```text
+Browser (Next.js + Leaflet)
+   ├─ POST /api/routes  {origin, destination}
+   ├─ POST /api/agent   {messages}          → Claude + strumenti sugli stessi dati
+   └─ POST /api/speak   {text}              → ElevenLabs
+Route handler (Zod, rate limit, timeout)
+   ├─ lib/routing/valhalla      percorsi pedonali, polyline6
+   ├─ lib/osm/{overpass,dataset} una query per l'area, cache, più endpoint, snapshot di riserva
+   ├─ lib/geo/{segment,match-evidence}
+   ├─ lib/scoring/{coverage,ers}
+   └─ lib/vision                 interfaccia + provider noop (disattivato)
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+L'assistente usa tre strumenti: `find_place` (cerca luoghi per nome nei dati OSM dell'area), `compare_routes` (la stessa pipeline dell'API) e `route_streets` (evidenze strada per strada).
+
+## Dati, provider e limiti
+
+- **Routing:** Valhalla sul server pubblico FOSSGIS (`VALHALLA_URL`), fair use e senza SLA.
+- **Evidenze:** OpenStreetMap via Overpass, © contributori di OpenStreetMap, licenza ODbL. Se Overpass non risponde entro 6 secondi l'app usa l'estrazione salvata in `data/pilot-snapshot.json` e lo dichiara nell'interfaccia con la data.
+- **Mappa:** tile standard di OpenStreetMap, scurite via CSS; adatte a una demo, non a traffico elevato.
+- **Vision:** interfaccia `VisionProvider` e flag `VISION_ENABLED` predisposti; nessun adapter Mapillary è collegato perché endpoint, classi, licenze e copertura non sono stati verificati con un token. L'app mostra «dati visivi non disponibili».
+- **Privacy:** nessun account, nessun tragitto salvato, coordinate mai scritte nei log. Le domande all'assistente (con i punti selezionati) vengono inviate ad Anthropic, il testo da leggere a ElevenLabs.
+- **Rate limit:** in memoria per istanza, sufficiente per la demo.
+- **Layer ufficiale dei lampioni di Roma (Geoportale):** non verificato; non è usato.
+- Rispetto alla specifica: la geometria usa una proiezione piana locale invece di Turf.js (pochi km, calcoli più semplici e testabili); il geocoder esterno è sostituito dalla ricerca per nome nei dati OSM dell'area.
