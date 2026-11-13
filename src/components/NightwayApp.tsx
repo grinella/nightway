@@ -1,13 +1,15 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { AssistantPanel } from "@/components/assistant/AssistantPanel";
+import { BottomSheet, type Detent } from "@/components/layout/BottomSheet";
 import { EvidenceLegend } from "@/components/routes/EvidenceLegend";
 import { RouteComparison } from "@/components/routes/RouteComparison";
+import { CloseIcon, FitIcon, InfoIcon, LayersIcon, RouteIcon, VoiceIcon } from "@/components/ui/icons";
+import { LensFilter } from "@/components/ui/LensFilter";
 import { postJson } from "@/lib/api-client";
 import { PILOT } from "@/lib/config";
-import { formatDistance, formatMinutes } from "@/lib/format";
 import { EXAMPLES } from "@/lib/map-config";
 import type { LatLon } from "@/lib/routing/types";
 import type { RoutesResponse } from "@/lib/schemas/routes";
@@ -20,27 +22,22 @@ const RouteMap = dynamic(() => import("@/components/map/RouteMap"), {
 type Status = { kind: "idle" } | { kind: "loading" } | { kind: "error"; message: string };
 type Tab = "routes" | "assistant" | "info";
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: "routes", label: "Percorsi" },
-  { id: "assistant", label: "Assistente" },
-  { id: "info", label: "Legenda" },
+const TABS: { id: Tab; label: string; title: string; icon: ReactNode }[] = [
+  { id: "routes", label: "Percorsi", title: "Percorsi", icon: <RouteIcon /> },
+  { id: "assistant", label: "Assistente", title: "Assistente", icon: <VoiceIcon /> },
+  { id: "info", label: "Legenda", title: "Come leggere la mappa", icon: <InfoIcon /> },
 ];
 
 const { south, west, north, east } = PILOT.bbox;
 const inPilot = (p: LatLon) => p.lat >= south && p.lat <= north && p.lon >= west && p.lon <= east;
 
-/** Riga di stato sempre visibile: su telefono è ciò che resta quando il pannello è abbassato. */
-function statusLine(origin: LatLon | null, destination: LatLon | null, status: Status, result: RoutesResponse | null, selectedId: string | null) {
-  if (status.kind === "loading") return "Calcolo i percorsi e leggo i dati della mappa…";
-  if (result) {
-    const index = Math.max(0, result.routes.findIndex((route) => route.id === selectedId));
-    const route = result.routes[index];
-    const count = result.routes.length === 1 ? "1 percorso" : `${result.routes.length} percorsi`;
-    return `${count} · Percorso ${index + 1}: ${formatDistance(route.distanceMeters)}, ${formatMinutes(route.durationSeconds)}`;
-  }
-  if (!origin) return "Tocca la mappa per scegliere la partenza (A).";
-  if (!destination) return "Ora tocca il punto di arrivo (B).";
-  return "Tocca la mappa per scegliere una nuova partenza.";
+/** Indicazione nella barra in alto: cosa fare adesso, o cosa sta succedendo. */
+function guidance(origin: LatLon | null, destination: LatLon | null, status: Status, result: RoutesResponse | null) {
+  if (status.kind === "loading") return "Calcolo i percorsi…";
+  if (result) return "Scegli un percorso per i dettagli.";
+  if (!origin) return "Tocca la mappa: scegli la partenza.";
+  if (!destination) return "Ora tocca il punto di arrivo.";
+  return "Tocca la mappa per ripartire.";
 }
 
 export function NightwayApp() {
@@ -51,23 +48,31 @@ export function NightwayApp() {
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const [showLayer, setShowLayer] = useState(true);
   const [tab, setTab] = useState<Tab>("routes");
-  const [sheetOpen, setSheetOpen] = useState(true);
+  const [detent, setDetent] = useState<Detent>("half");
+  const [fitSignal, setFitSignal] = useState(0);
 
-  /** Su telefono ogni blocco appartiene a una scheda; su schermi larghi si vedono tutti. */
-  const inTab = (name: Tab) => (tab === name ? "" : "max-lg:hidden");
+  const activeTab = TABS.find((t) => t.id === tab) ?? TABS[0];
+  const hidden = (name: Tab) => (tab === name ? "" : "hidden");
 
   function showAnalysis(analysis: RoutesResponse) {
     setResult(analysis);
     setSelectedRouteId(analysis.routes[0]?.id ?? null);
     setStatus({ kind: "idle" });
-    setSheetOpen(true);
+    setDetent((current) => (current === "peek" ? "half" : current));
+  }
+
+  function reset() {
+    setOrigin(null);
+    setDestination(null);
+    setResult(null);
+    setSelectedRouteId(null);
+    setStatus({ kind: "idle" });
   }
 
   async function analyze(from: LatLon, to: LatLon) {
+    reset();
     setOrigin(from);
     setDestination(to);
-    setResult(null);
-    setSelectedRouteId(null);
     setStatus({ kind: "loading" });
     try {
       showAnalysis(await postJson<RoutesResponse>("/api/routes", { origin: from, destination: to }));
@@ -87,13 +92,10 @@ export function NightwayApp() {
       analyze(origin, point);
       return;
     }
+    reset();
     setOrigin(point);
-    setDestination(null);
-    setResult(null);
-    setSelectedRouteId(null);
-    setStatus({ kind: "idle" });
     // Lascia libera la mappa per scegliere l'arrivo.
-    setSheetOpen(false);
+    setDetent("peek");
   }
 
   /** L'assistente ha calcolato dei percorsi: allinea mappa e pannello alla sua analisi. */
@@ -108,122 +110,138 @@ export function NightwayApp() {
     showAnalysis(analysis);
   }
 
+  function openTab(next: Tab) {
+    setTab(next);
+    setDetent((current) => (current === "peek" ? "half" : current));
+  }
+
   return (
-    <div className="max-lg:h-dvh max-lg:overflow-hidden lg:grid lg:h-dvh lg:grid-cols-[26rem_1fr]">
-      <main
-        className={`flex flex-col bg-panel max-lg:fixed max-lg:inset-x-0 max-lg:bottom-0 max-lg:z-[1100] max-lg:rounded-t-2xl max-lg:border-t max-lg:border-line max-lg:pb-[env(safe-area-inset-bottom)] lg:overflow-y-auto lg:border-r lg:border-line ${sheetOpen ? "max-lg:h-[62dvh]" : ""}`}
-      >
-        <div className="shrink-0 px-4 pt-2 sm:px-5 lg:pt-5">
-          <button
-            type="button"
-            aria-expanded={sheetOpen}
-            aria-controls="panel-body"
-            onClick={() => setSheetOpen(!sheetOpen)}
-            className="mx-auto mb-1 grid h-8 w-full place-items-center lg:hidden"
-          >
-            <span className="h-1 w-10 rounded-full bg-line" aria-hidden="true" />
-            <span className="sr-only">{sheetOpen ? "Abbassa il pannello" : "Alza il pannello"}</span>
-          </button>
-          <div className="flex items-baseline justify-between gap-3">
-            <h1 className="text-lg font-bold lg:text-[1.375rem]">NIGHTWAY</h1>
-            <span className="text-sm text-dim lg:hidden">{PILOT.name}</span>
-          </div>
-          <p aria-live="polite" className="mt-1 pb-3">
-            {statusLine(origin, destination, status, result, selectedRouteId)}
+    <div className="fixed inset-0">
+      <LensFilter />
+
+      <RouteMap
+        origin={origin}
+        destination={destination}
+        result={result}
+        selectedRouteId={selectedRouteId}
+        showLayer={showLayer}
+        detent={detent}
+        fitSignal={fitSignal}
+        onPick={pick}
+        onSelectRoute={setSelectedRouteId}
+      />
+
+      <header className="glass fixed inset-x-3 top-[calc(var(--safe-top)+0.5rem)] z-[1100] flex min-h-14 items-center gap-3 rounded-[28px] py-2 pl-5 pr-2 lg:inset-x-auto lg:left-4 lg:top-4 lg:w-[24rem]">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-[0.8125rem] font-bold tracking-wide text-sodium">NIGHTWAY</h1>
+          <p aria-live="polite" className="leading-snug">
+            {guidance(origin, destination, status, result)}
           </p>
           {status.kind === "error" && (
-            <p role="alert" className="mb-3 rounded-control border border-alert px-3 py-2 text-alert">
+            <p role="alert" className="mt-1 text-sm leading-snug text-alert">
               {status.message}
             </p>
           )}
         </div>
+        {origin && (
+          <button type="button" onClick={reset} aria-label="Cancella partenza e arrivo" className="btn size-11 shrink-0 p-0">
+            <CloseIcon />
+          </button>
+        )}
+      </header>
 
-        <div id="panel-body" className={`flex min-h-0 flex-1 flex-col ${sheetOpen ? "" : "max-lg:hidden"}`}>
-          <div role="tablist" aria-label="Sezioni" className="grid shrink-0 grid-cols-3 border-y border-line lg:hidden">
-            {TABS.map(({ id, label }) => (
+      <div className="fixed right-3 top-[calc(var(--safe-top)+6.25rem)] z-[1100] grid gap-2 lg:right-4 lg:top-4">
+        <button
+          type="button"
+          aria-pressed={showLayer}
+          aria-label="Mostra i dati mappati attorno ai percorsi"
+          title="Dati mappati attorno ai percorsi"
+          onClick={() => setShowLayer(!showLayer)}
+          className="glass fab"
+        >
+          <LayersIcon />
+        </button>
+        {result && (
+          <button type="button" aria-label="Inquadra i percorsi" title="Inquadra i percorsi" onClick={() => setFitSignal(fitSignal + 1)} className="glass fab">
+            <FitIcon />
+          </button>
+        )}
+      </div>
+
+      <BottomSheet
+        detent={detent}
+        onDetentChange={setDetent}
+        title={activeTab.title}
+        summary={tab === "routes" && result ? (result.routes.length === 1 ? "1 percorso" : `${result.routes.length} percorsi`) : undefined}
+      >
+        <div className={`grid gap-5 ${hidden("routes")}`}>
+          {result && <RouteComparison result={result} selectedRouteId={selectedRouteId} onSelect={setSelectedRouteId} />}
+          <section aria-labelledby="pick-title" className="grid gap-2">
+            <h3 id="pick-title" className="font-semibold">
+              {result ? "Prova un altro tragitto" : "Prova un tragitto"}
+            </h3>
+            <p className="text-sm text-dim">Scegli due punti sulla mappa, oppure parti da luoghi reali della zona.</p>
+            {EXAMPLES.map((example) => (
               <button
-                key={id}
+                key={example.label}
                 type="button"
-                role="tab"
-                aria-selected={tab === id}
-                onClick={() => setTab(id)}
-                className={`min-h-11 border-b-2 text-sm ${tab === id ? "border-sodium font-bold text-ink" : "border-transparent text-dim"}`}
+                disabled={status.kind === "loading"}
+                onClick={() => analyze(example.origin, example.destination)}
+                className="btn btn-row"
               >
-                {label}
+                {example.label}
               </button>
             ))}
-          </div>
+          </section>
+        </div>
 
-          <div className="grid content-start gap-6 overscroll-contain p-4 max-lg:min-h-0 max-lg:flex-1 max-lg:overflow-y-auto sm:p-5 lg:pt-2">
-            <p className={`text-dim ${inTab("info")}`}>
-              Confronta i percorsi a piedi su ciò che la mappa documenta, e vedi dove i dati mancano. Area pilota: {PILOT.name}.
+        <div className={hidden("assistant")}>
+          <AssistantPanel origin={origin} destination={destination} result={result} onAnalysis={adoptAgentAnalysis} />
+        </div>
+
+        <div className={`grid gap-4 ${hidden("info")}`}>
+          <EvidenceLegend />
+          <div className="glass-card p-4 text-sm text-dim">
+            <p>
+              NIGHTWAY confronta i percorsi a piedi su ciò che la mappa documenta e mostra dove i dati mancano. Area pilota: {PILOT.name}.
             </p>
-
-            {result && (
-              <div className={inTab("routes")}>
-                <RouteComparison result={result} selectedRouteId={selectedRouteId} onSelect={setSelectedRouteId} />
-              </div>
-            )}
-
-            <section aria-labelledby="pick-title" className={`grid gap-2 ${inTab("routes")}`}>
-              <h2 id="pick-title" className="font-bold">
-                {result ? "Prova un altro tragitto" : "Prova un tragitto"}
-              </h2>
-              <p className="text-sm text-dim">Scegli due punti sulla mappa, oppure parti da luoghi reali della zona:</p>
-              {EXAMPLES.map((example) => (
-                <button
-                  key={example.label}
-                  type="button"
-                  disabled={status.kind === "loading"}
-                  onClick={() => analyze(example.origin, example.destination)}
-                  className="min-h-11 rounded-control border border-line px-3 py-2 text-left text-sm hover:bg-raised disabled:opacity-60"
-                >
-                  {example.label}
-                </button>
-              ))}
-            </section>
-
-            <div className={inTab("assistant")}>
-              <AssistantPanel origin={origin} destination={destination} result={result} onAnalysis={adoptAgentAnalysis} />
-            </div>
-
-            <div className={`grid gap-3 ${inTab("info")}`}>
-              <EvidenceLegend />
-              <label className="flex min-h-11 items-center gap-2 text-sm">
-                <input type="checkbox" checked={showLayer} onChange={(event) => setShowLayer(event.target.checked)} className="size-4 accent-sodium" />
-                Mostra anche i dati mappati attorno ai percorsi
-              </label>
-            </div>
-
-            <footer className={`border-t border-line pt-4 text-sm text-dim ${inTab("info")}`}>
-              <p>
-                NIGHTWAY non valuta la sicurezza personale e non prevede reati: mostra caratteristiche ambientali documentate e i loro limiti. La
-                scelta del percorso resta tua.
-              </p>
-              <p className="mt-2">
-                Dati © contributori di{" "}
-                <a href="https://www.openstreetmap.org/copyright" className="text-ink underline underline-offset-2">
-                  OpenStreetMap
-                </a>{" "}
-                (ODbL). Routing: Valhalla. Nessun account, nessun tragitto salvato.
-              </p>
-            </footer>
+            <p className="mt-2">
+              Non valuta la sicurezza personale e non prevede reati: mostra caratteristiche ambientali documentate e i loro limiti. La scelta del
+              percorso resta tua.
+            </p>
+            <p className="mt-2">
+              Dati © contributori di{" "}
+              <a href="https://www.openstreetmap.org/copyright" className="text-ink underline underline-offset-2">
+                OpenStreetMap
+              </a>{" "}
+              (ODbL). Routing: Valhalla. Nessun account, nessun tragitto salvato.
+            </p>
           </div>
         </div>
-      </main>
+      </BottomSheet>
 
-      <div className="max-lg:fixed max-lg:inset-0 lg:order-2">
-        <RouteMap
-          origin={origin}
-          destination={destination}
-          result={result}
-          selectedRouteId={selectedRouteId}
-          showLayer={showLayer}
-          sheetOpen={sheetOpen}
-          onPick={pick}
-          onSelectRoute={setSelectedRouteId}
-        />
-      </div>
+      <nav
+        aria-label="Sezioni"
+        className="glass fixed inset-x-3 bottom-[calc(var(--safe-bottom)+0.5rem)] z-[1100] rounded-full p-1.5 lg:inset-x-auto lg:bottom-auto lg:left-4 lg:top-[5.25rem] lg:w-[24rem]"
+      >
+        <div role="tablist" className="grid grid-cols-3 gap-1">
+          {TABS.map(({ id, label, icon }) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={tab === id}
+              onClick={() => openTab(id)}
+              className={`flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-full text-xs font-semibold transition-colors lg:min-h-11 lg:flex-row lg:gap-2 lg:text-sm ${
+                tab === id ? "bg-white/14 text-sodium" : "text-dim hover:text-ink"
+              }`}
+            >
+              {icon}
+              {label}
+            </button>
+          ))}
+        </div>
+      </nav>
     </div>
   );
 }

@@ -5,19 +5,26 @@
   --color-panel: #121826;
   --color-raised: #1a2233;
   --color-line: #2a3550;
-  --color-ink: #e8ecf4;
-  --color-dim: #a3aec4;
+  --color-ink: #f2f5fa;
+  --color-dim: #b4bdd0;
   --color-sodium: #ffb347;
-  --color-unknown: #8f9bb3;
+  --color-unknown: #a3aec4;
   --color-unlit: #7aa2e8;
-  --color-alert: #ff9a8a;
-  --font-sans: var(--font-atkinson), ui-sans-serif, system-ui, sans-serif;
-  --radius-box: 10px;
-  --radius-control: 8px;
+  --color-alert: #ffa397;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, sans-serif;
 }
 
 :root {
   color-scheme: dark;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
 }
 
 body {
@@ -25,6 +32,7 @@ body {
   color: var(--color-ink);
   font-family: var(--font-sans);
   font-variant-numeric: tabular-nums;
+  -webkit-tap-highlight-color: transparent;
 }
 
 ::selection {
@@ -38,15 +46,171 @@ body {
 }
 
 * {
-  scrollbar-color: var(--color-line) transparent;
+  scrollbar-color: rgb(255 255 255 / 0.22) transparent;
+  scrollbar-width: thin;
 }
 
-button,
-a {
+/* ───────── Vetro ─────────
+   Il materiale è una lastra tinta che devia ciò che le sta dietro: la rifrazione è un filtro SVG di
+   spostamento applicato allo sfondo (vedi LensFilter), senza alcuna sfocatura. Dove il motore non
+   applica filtri SVG allo sfondo (WebKit) restano tinta, saturazione e riflessi sui bordi. */
+.glass {
+  --glass-tint: 66%;
+  background-color: color-mix(in srgb, var(--color-night) var(--glass-tint), transparent);
+  -webkit-backdrop-filter: saturate(1.5) brightness(1.14);
+  backdrop-filter: url(#nw-lens) saturate(1.5) brightness(1.14);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.34),
+    inset 0 -1px 0 rgb(255 255 255 / 0.08),
+    inset 1px 0 0 rgb(255 255 255 / 0.1),
+    inset -1px 0 0 rgb(255 255 255 / 0.1),
+    0 12px 32px rgb(0 0 0 / 0.42);
+}
+
+/* Superfici grandi dove si legge: vetro più denso, lente più stretta ai bordi. */
+.glass-dense {
+  --glass-tint: 90%;
+  backdrop-filter: url(#nw-lens-wide) saturate(1.5) brightness(1.14);
+}
+
+/* Schede e righe di dati dentro una lastra: uno strato di vetro più chiaro, senza un secondo sfondo filtrato. */
+.glass-card {
+  border-radius: 20px;
+  background: rgb(255 255 255 / 0.06);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.16),
+    inset 0 0 0 1px rgb(255 255 255 / 0.06);
+}
+
+.glass-card[data-selected="true"] {
+  background: rgb(255 179 71 / 0.1);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.2),
+    inset 0 0 0 1.5px rgb(255 179 71 / 0.85);
+}
+
+.btn {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 999px;
+  padding: 0 18px;
+  font-weight: 600;
+  background: rgb(255 255 255 / 0.1);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.24),
+    inset 0 0 0 1px rgb(255 255 255 / 0.07);
   transition:
     background-color 160ms ease-out,
-    border-color 160ms ease-out,
-    color 160ms ease-out;
+    transform 160ms ease-out,
+    opacity 160ms ease-out;
+}
+
+.btn:hover {
+  background: rgb(255 255 255 / 0.16);
+}
+
+.btn:active {
+  transform: scale(0.97);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  transform: none;
+}
+
+.btn-primary {
+  background: var(--color-sodium);
+  color: var(--color-night);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.55),
+    0 6px 18px rgb(255 179 71 / 0.28);
+}
+
+.btn-primary:hover {
+  background: #ffc470;
+}
+
+/* Voce di elenco toccabile: stessa materia dei bottoni, allineata a sinistra. */
+.btn-row {
+  width: 100%;
+  min-height: 48px;
+  justify-content: flex-start;
+  border-radius: 16px;
+  padding: 10px 14px;
+  text-align: left;
+  font-weight: 500;
+}
+
+.fab {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border-radius: 999px;
+  transition: transform 160ms ease-out;
+}
+
+.fab:active {
+  transform: scale(0.94);
+}
+
+.fab[aria-pressed="true"] {
+  color: var(--color-sodium);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 0.8125rem;
+  background: rgb(255 255 255 / 0.08);
+}
+
+.field {
+  min-height: 44px;
+  border-radius: 999px;
+  padding: 0 16px;
+  background: rgb(0 0 0 / 0.28);
+  box-shadow:
+    inset 0 1px 2px rgb(0 0 0 / 0.5),
+    inset 0 0 0 1px rgb(255 255 255 / 0.1);
+}
+
+.field::placeholder {
+  color: var(--color-dim);
+}
+
+/* ───────── Pannello a scomparsa ───────── */
+.sheet {
+  height: var(--sheet-h);
+  transition: height 280ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.sheet[data-detent="peek"] {
+  --sheet-h: 4.75rem;
+}
+
+.sheet[data-detent="half"] {
+  --sheet-h: 46dvh;
+}
+
+.sheet[data-detent="full"] {
+  --sheet-h: calc(100dvh - 15.5rem - var(--safe-top) - var(--safe-bottom));
+}
+
+.sheet[data-dragging="true"] {
+  transition: none;
+}
+
+@media (min-width: 1024px) {
+  .sheet {
+    height: auto;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -58,22 +222,29 @@ a {
   }
 }
 
-/* Leaflet dentro il tema */
+/* ───────── Leaflet dentro il tema ───────── */
 .leaflet-container {
   background: var(--color-night);
   font-family: var(--font-sans);
 }
 
-/* Con viewport-fit=cover i controlli in alto restano sotto notch e barra di stato. */
+/* La cartografia OSM chiara abbaglierebbe di sera: la si porta nei toni del tema. */
+.leaflet-tile-pane {
+  filter: invert(1) hue-rotate(190deg) saturate(0.35) brightness(0.72) contrast(0.92);
+}
+
+/* Su telefono l'attribuzione sta sotto la barra in alto, dove il pannello non la copre mai. */
 div.leaflet-container .leaflet-top {
-  top: env(safe-area-inset-top);
+  top: calc(var(--safe-top) + 6.5rem);
 }
 
 div.leaflet-container .leaflet-control-attribution {
-  background: var(--color-panel);
+  margin: 0 0 0 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-night) 72%, transparent);
   color: var(--color-dim);
-  font-size: 0.75rem;
-  padding: 2px 8px;
+  font-size: 0.6875rem;
+  padding: 2px 10px;
 }
 
 div.leaflet-container .leaflet-control-attribution a {
@@ -82,27 +253,52 @@ div.leaflet-container .leaflet-control-attribution a {
   text-underline-offset: 2px;
 }
 
-/* La cartografia OSM chiara abbaglierebbe di sera: la si porta nei toni del tema. */
-.leaflet-tile-pane {
-  filter: invert(1) hue-rotate(190deg) saturate(0.35) brightness(0.72) contrast(0.92);
+div.leaflet-container .leaflet-control-zoom {
+  display: none;
 }
 
-div.leaflet-container .leaflet-bar a,
-div.leaflet-container .leaflet-bar a:hover {
-  background: var(--color-panel);
-  color: var(--color-ink);
-  border-color: var(--color-line);
+@media (min-width: 1024px) {
+  div.leaflet-container .leaflet-top {
+    top: 0.75rem;
+  }
+
+  /* Accanto alla colonna dei pannelli, non sotto. */
+  div.leaflet-container .leaflet-top.leaflet-left {
+    left: 26rem;
+  }
+
+  div.leaflet-container .leaflet-control-zoom {
+    display: block;
+    margin: 0 16px 16px 0;
+    border: 0;
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow:
+      inset 0 0 0 1px rgb(255 255 255 / 0.1),
+      0 12px 32px rgb(0 0 0 / 0.42);
+  }
+
+  div.leaflet-container .leaflet-bar a,
+  div.leaflet-container .leaflet-bar a:hover {
+    width: 40px;
+    height: 40px;
+    line-height: 40px;
+    background: color-mix(in srgb, var(--color-night) 72%, transparent);
+    color: var(--color-ink);
+    border-color: rgb(255 255 255 / 0.1);
+  }
 }
 
 .endpoint-marker {
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   border-radius: 999px;
   background: var(--color-ink);
   color: var(--color-night);
   font-weight: 700;
   font-size: 0.875rem;
   border: 2px solid var(--color-night);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.5);
 }

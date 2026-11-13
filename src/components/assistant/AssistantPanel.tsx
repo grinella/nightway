@@ -145,9 +145,9 @@ function Assistant({ origin, destination, result, onAnalysis }: Props) {
 
   return (
     <section aria-labelledby="assistant-title" className="grid gap-3">
-      <h2 id="assistant-title" className="font-bold">
+      <h3 id="assistant-title" className="sr-only">
         Chiedi all&apos;assistente
-      </h2>
+      </h3>
       <p className="text-sm text-dim">
         Nomina due luoghi di Testaccio o Ostiense, a voce o per iscritto, oppure fai domande sui percorsi già calcolati. Risponde solo con i dati dei
         percorsi e di OpenStreetMap; voce e domande sono elaborate da ElevenLabs.
@@ -155,7 +155,7 @@ function Assistant({ origin, destination, result, onAnalysis }: Props) {
 
       <div className="flex flex-wrap items-center gap-3">
         {connected ? (
-          <button type="button" onClick={() => conversation.endSession()} className="min-h-11 rounded-control border border-line px-3 py-2 hover:bg-raised">
+          <button type="button" onClick={() => conversation.endSession()} className="btn">
             Termina la conversazione
           </button>
         ) : (
@@ -163,7 +163,7 @@ function Assistant({ origin, destination, result, onAnalysis }: Props) {
             type="button"
             onClick={() => start("voice")}
             disabled={busy}
-            className="min-h-11 rounded-control bg-sodium px-4 py-2 font-bold text-night hover:bg-ink disabled:opacity-50"
+            className="btn btn-primary"
           >
             Parla con l&apos;assistente
           </button>
@@ -183,7 +183,7 @@ function Assistant({ origin, destination, result, onAnalysis }: Props) {
                 type="button"
                 onClick={() => ask(suggestion)}
                 disabled={busy}
-                className="min-h-11 w-full rounded-control border border-line px-3 py-2 text-left text-sm hover:bg-raised disabled:opacity-60"
+                className="btn btn-row text-sm"
               >
                 {suggestion}
               </button>
@@ -194,7 +194,7 @@ function Assistant({ origin, destination, result, onAnalysis }: Props) {
 
       <ol aria-live="polite" className="grid gap-3">
         {lines.map((line, i) => (
-          <li key={i} className={line.role === "user" ? "ml-6 rounded-box bg-raised px-3 py-2" : "mr-2"}>
+          <li key={i} className={line.role === "user" ? "glass-card ml-8 px-4 py-2.5" : "mr-2 px-1"}>
             <span className="sr-only">{line.role === "user" ? "Tu: " : "Assistente: "}</span>
             <p className="whitespace-pre-wrap">{line.text}</p>
           </li>
@@ -223,12 +223,12 @@ function Assistant({ origin, destination, result, onAnalysis }: Props) {
           onChange={(event) => setDraft(event.target.value)}
           maxLength={500}
           placeholder="Es. da Porta San Paolo al Mattatoio"
-          className="min-h-11 min-w-0 flex-1 rounded-control border border-line bg-raised px-3 py-2 placeholder:text-dim"
+          className="field min-w-0 flex-1"
         />
         <button
           type="submit"
           disabled={busy || !draft.trim()}
-          className="min-h-11 rounded-control border border-line px-4 py-2 font-bold hover:bg-raised disabled:opacity-50"
+          className="btn"
         >
           Invia
         </button>

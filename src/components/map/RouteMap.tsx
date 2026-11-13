@@ -3,7 +3,8 @@
 import "leaflet/dist/leaflet.css";
 import { divIcon, type LatLngBoundsExpression, type LatLngExpression } from "leaflet";
 import { useEffect } from "react";
-import { AttributionControl, CircleMarker, MapContainer, Marker, Polyline, Rectangle, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import { AttributionControl, CircleMarker, MapContainer, Marker, Polyline, Rectangle, TileLayer, ZoomControl, useMap, useMapEvents } from "react-leaflet";
+import { detentHeight, type Detent } from "@/components/layout/BottomSheet";
 import { PILOT } from "@/lib/config";
 import type { LonLat } from "@/lib/geo/planar";
 import { LIT_STYLE, TILES } from "@/lib/map-config";
@@ -16,8 +17,10 @@ type Props = {
   result: RoutesResponse | null;
   selectedRouteId: string | null;
   showLayer: boolean;
-  /** Su telefono: il pannello è alzato e copre la parte bassa della mappa. */
-  sheetOpen: boolean;
+  /** Posizione del pannello: su telefono copre la parte bassa della mappa. */
+  detent: Detent;
+  /** Cambia quando l'utente chiede di inquadrare di nuovo i percorsi. */
+  fitSignal: number;
   onPick: (point: LatLon) => void;
   onSelectRoute: (id: string) => void;
 };
@@ -34,32 +37,36 @@ function ClickToPick({ onPick }: Pick<Props, "onPick">) {
   return null;
 }
 
-/** Inquadra i percorsi quando arriva una nuova analisi. */
-function FitToRoutes({ result, sheetOpen }: Pick<Props, "result" | "sheetOpen">) {
+/** Inquadra i percorsi nella parte di mappa libera da barra, pannello e navigazione. */
+function FitToRoutes({ result, detent, fitSignal }: Pick<Props, "result" | "detent" | "fitSignal">) {
   const map = useMap();
   useEffect(() => {
     const points = result?.routes.flatMap((route) => route.geometry.coordinates.map(toLatLng)) ?? [];
     if (!points.length) return;
-    // Su telefono il pannello copre la parte bassa della mappa: i percorsi vanno inquadrati sopra.
-    const mobile = window.matchMedia("(max-width: 1023px)").matches;
-    const covered = mobile ? (sheetOpen ? window.innerHeight * 0.62 : 130) : 0;
-    map.fitBounds(points as LatLngBoundsExpression, { paddingTopLeft: [40, 56], paddingBottomRight: [40, covered + 40] });
-  }, [map, result, sheetOpen]);
+    const desktop = window.matchMedia("(min-width: 1024px)").matches;
+    // Il pannello aperto del tutto lascia poca mappa: si inquadra come se fosse a metà.
+    const sheet = detentHeight(detent === "full" ? "half" : detent, window.innerHeight);
+    map.fitBounds(points as LatLngBoundsExpression, {
+      paddingTopLeft: desktop ? [432, 48] : [32, 150],
+      paddingBottomRight: desktop ? [88, 48] : [72, sheet + 110],
+    });
+  }, [map, result, detent, fitSignal]);
   return null;
 }
 
-export default function RouteMap({ origin, destination, result, selectedRouteId, showLayer, sheetOpen, onPick, onSelectRoute }: Props) {
+export default function RouteMap({ origin, destination, result, selectedRouteId, showLayer, detent, fitSignal, onPick, onSelectRoute }: Props) {
   const routes = result?.routes ?? [];
   const selected = routes.find((route) => route.id === selectedRouteId);
 
   return (
-    <MapContainer bounds={PILOT_BOUNDS} maxBounds={MAX_BOUNDS} minZoom={14} className="h-full w-full" attributionControl={false}>
+    <MapContainer bounds={PILOT_BOUNDS} maxBounds={MAX_BOUNDS} minZoom={14} className="h-full w-full" attributionControl={false} zoomControl={false}>
       {/* In alto: su telefono il pannello copre il bordo inferiore e l'attribuzione deve restare visibile. */}
-      <AttributionControl position="topright" prefix={false} />
+      <AttributionControl position="topleft" prefix={false} />
+      <ZoomControl position="bottomright" />
       <TileLayer url={TILES.url} attribution={TILES.attribution} />
       <Rectangle bounds={PILOT_BOUNDS} pathOptions={{ color: "#a3aec4", weight: 1, dashArray: "2 6", fill: false, interactive: false }} />
       <ClickToPick onPick={onPick} />
-      <FitToRoutes result={result} sheetOpen={sheetOpen} />
+      <FitToRoutes result={result} detent={detent} fitSignal={fitSignal} />
 
       {showLayer &&
         result?.layer.litWays.map((way, i) => (

@@ -6,7 +6,6 @@ test("la mappa carica con l'attribuzione OpenStreetMap visibile", async ({ page 
   await page.goto("/");
   await expect(page.locator(".leaflet-control-attribution")).toContainText("OpenStreetMap");
   await expect(page.locator(".leaflet-control-attribution")).toBeInViewport();
-  await expect(page.locator(".leaflet-control-attribution")).toHaveCSS("background-color", "rgb(18, 24, 38)");
   const scrollsSideways = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
   expect(scrollsSideways).toBe(false);
 });
@@ -16,7 +15,8 @@ test("un tragitto reale produce percorsi con distanza, durata e copertura, senza
   await page.goto("/");
   await page.getByRole("button", { name: example }).click();
   await expect(page.getByRole("heading", { name: /percors[oi] disponibil[ei]/ })).toBeVisible({ timeout: 40_000 });
-  await expect(page.getByText(/\d+(,\d)? km · \d+ min|\d+ m · \d+ min/).first()).toBeVisible();
+  await expect(page.getByText(/^\d+ min$/).first()).toBeVisible();
+  await expect(page.getByText(/^\d+(,\d)? km$|^\d+ m$/).first()).toBeVisible();
   await expect(page.getByText("Copertura delle evidenze").first()).toBeVisible();
   await expect(page.getByText(/Fonte: OpenStreetMap/)).toBeVisible();
   const text = (await page.locator("body").innerText()).toLowerCase();
@@ -46,10 +46,29 @@ test("se l'assistente non è configurato lo dichiara, senza risposte inventate",
     }),
   );
   await page.goto("/");
-  // Su telefono l'assistente sta in una scheda del pannello.
-  const tab = page.getByRole("tab", { name: "Assistente" });
-  if (await tab.isVisible()) await tab.click();
+  await page.getByRole("tab", { name: "Assistente" }).click();
   await page.getByLabel("Domanda per l'assistente").fill("Da Piramide al Mattatoio");
   await page.getByRole("button", { name: "Invia", exact: true }).click();
   await expect(page.getByRole("alert").filter({ hasText: "Assistente non configurato" })).toBeVisible();
+});
+
+test("su telefono il pannello si trascina e si richiude con un tocco", async ({ page }, testInfo) => {
+  test.skip(!["mobile", "iphone"].includes(testInfo.project.name), "solo layout telefono");
+  await page.goto("/");
+  const sheet = page.locator("section.sheet");
+  const handle = sheet.locator("h2");
+  const heightOf = async () => (await sheet.boundingBox())!.height;
+  const half = await heightOf();
+
+  const box = (await handle.boundingBox())!;
+  await page.mouse.move(box.x + 40, box.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 40, box.y - 220, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(heightOf).toBeGreaterThan(half + 80);
+
+  await handle.click();
+  await expect.poll(heightOf).toBeLessThan(120);
+  await handle.click();
+  await expect.poll(heightOf).toBeGreaterThan(200);
 });

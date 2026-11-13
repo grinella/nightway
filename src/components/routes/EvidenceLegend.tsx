@@ -27,11 +27,8 @@ function LampSample({ filled }: { filled: boolean }) {
 
 export function EvidenceLegend() {
   return (
-    <section aria-labelledby="legend-title" className="text-sm">
-      <h2 id="legend-title" className="font-bold">
-        Come leggere la mappa
-      </h2>
-      <ul className="mt-2 grid gap-1.5 text-dim">
+    <section aria-label="Legenda delle evidenze" className="glass-card p-4 text-sm">
+      <ul className="grid gap-2.5 text-ink">
         {LINES.map(({ lit, label }) => (
           <li key={lit} className="flex items-center gap-3">
             <LineSample lit={lit} />

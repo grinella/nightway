@@ -6,7 +6,7 @@ type Props = { route: AnalyzedRoute; evidence: RoutesResponse["evidence"]; visio
 
 function DimensionRow({ label, score, coverage, covered }: { label: string; score: number | null; coverage: number; covered: number }) {
   return (
-    <tr className="border-t border-line">
+    <tr className="border-t border-white/10">
       <th scope="row" className="py-2 pr-2 text-left font-normal">
         {label}
       </th>

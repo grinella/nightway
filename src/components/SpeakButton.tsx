@@ -57,7 +57,7 @@ export function SpeakButton({ text, label = "Ascolta" }: { text: string; label?:
         type="button"
         onClick={state === "playing" ? stop : play}
         disabled={state === "loading"}
-        className="min-h-11 rounded-control border border-line px-3 hover:bg-raised disabled:opacity-60 lg:min-h-9"
+        className="btn min-h-10 px-4 text-sm"
       >
         {state === "loading" ? "Preparo l'audio…" : state === "playing" ? "Ferma" : label}
       </button>
