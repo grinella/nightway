@@ -1,15 +1,16 @@
 "use client";
 
-import "leaflet/dist/leaflet.css";
-import { divIcon, type LatLngBoundsExpression, type LatLngExpression } from "leaflet";
-import { useEffect } from "react";
-import { AttributionControl, CircleMarker, MapContainer, Marker, Polyline, Rectangle, TileLayer, ZoomControl, useMap, useMapEvents } from "react-leaflet";
+import "maplibre-gl/dist/maplibre-gl.css";
+import maplibregl, { type GeoJSONSource, type LngLatBoundsLike, type Map as MapLibreMap } from "maplibre-gl";
+import { useEffect, useRef, useState } from "react";
 import { detentHeight, type Detent } from "@/components/layout/BottomSheet";
 import { PILOT } from "@/lib/config";
 import type { LonLat } from "@/lib/geo/planar";
-import { LIT_STYLE, TILES } from "@/lib/map-config";
+import { LIT_STYLE, MAP_STYLE_URL, TILT } from "@/lib/map-config";
 import type { LatLon } from "@/lib/routing/types";
 import type { RoutesResponse } from "@/lib/schemas/routes";
+
+type Padding = { top: number; right: number; bottom: number; left: number };
 
 type Props = {
   origin: LatLon | null;
@@ -21,88 +22,243 @@ type Props = {
   detent: Detent;
   /** Cambia quando l'utente chiede di inquadrare di nuovo i percorsi. */
   fitSignal: number;
+  /** Spazio occupato dai comandi attorno alla mappa; se manca si calcola dal layout web. */
+  fitPadding?: Padding;
+  /** Vista inclinata con edifici in 3D (predefinita) oppure dall'alto. */
+  tilted?: boolean;
   onPick: (point: LatLon) => void;
   onSelectRoute: (id: string) => void;
 };
 
+type Feature = GeoJSON.Feature;
+
 const { south, west, north, east } = PILOT.bbox;
-const PILOT_BOUNDS: LatLngBoundsExpression = [[south, west], [north, east]];
-const MAX_BOUNDS: LatLngBoundsExpression = [[south - 0.01, west - 0.015], [north + 0.01, east + 0.015]];
+const PILOT_BOUNDS: LngLatBoundsLike = [[west, south], [east, north]];
+const MAX_BOUNDS: LngLatBoundsLike = [[west - 0.02, south - 0.015], [east + 0.02, north + 0.015]];
+const PILOT_RING: LonLat[] = [[west, south], [east, south], [east, north], [west, north], [west, south]];
 
-const toLatLng = ([lon, lat]: LonLat): LatLngExpression => [lat, lon];
-const endpointIcon = (label: string) => divIcon({ className: "", html: `<span class="endpoint-marker">${label}</span>`, iconSize: [28, 28], iconAnchor: [14, 14] });
+const SOURCES = ["nw-pilot", "nw-around-ways", "nw-around-lamps", "nw-alt", "nw-selected", "nw-segments", "nw-lamps"] as const;
+type SourceId = (typeof SOURCES)[number];
 
-function ClickToPick({ onPick }: Pick<Props, "onPick">) {
-  useMapEvents({ click: (event) => onPick({ lat: event.latlng.lat, lon: event.latlng.lng }) });
-  return null;
+const line = (coords: LonLat[], properties: Record<string, unknown> = {}): Feature => ({
+  type: "Feature",
+  properties,
+  geometry: { type: "LineString", coordinates: coords },
+});
+const point = (coord: LonLat, properties: Record<string, unknown> = {}): Feature => ({
+  type: "Feature",
+  properties,
+  geometry: { type: "Point", coordinates: coord },
+});
+const collection = (features: Feature[]): GeoJSON.FeatureCollection => ({ type: "FeatureCollection", features });
+
+const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/** Padding del layout web: barra in alto, pannello e navigazione in basso (o colonna a sinistra su desktop). */
+function webPadding(detent: Detent): Padding {
+  if (window.matchMedia("(min-width: 1024px)").matches) return { top: 48, right: 88, bottom: 48, left: 432 };
+  // Il pannello aperto del tutto lascia poca mappa: si inquadra come se fosse a metà.
+  const sheet = detentHeight(detent === "full" ? "half" : detent, window.innerHeight);
+  return { top: 150, right: 72, bottom: sheet + 110, left: 32 };
 }
 
-/** Inquadra i percorsi nella parte di mappa libera da barra, pannello e navigazione. */
-function FitToRoutes({ result, detent, fitSignal }: Pick<Props, "result" | "detent" | "fitSignal">) {
-  const map = useMap();
-  useEffect(() => {
-    const points = result?.routes.flatMap((route) => route.geometry.coordinates.map(toLatLng)) ?? [];
-    if (!points.length) return;
-    const desktop = window.matchMedia("(min-width: 1024px)").matches;
-    // Il pannello aperto del tutto lascia poca mappa: si inquadra come se fosse a metà.
-    const sheet = detentHeight(detent === "full" ? "half" : detent, window.innerHeight);
-    map.fitBounds(points as LatLngBoundsExpression, {
-      paddingTopLeft: desktop ? [432, 48] : [32, 150],
-      paddingBottomRight: desktop ? [88, 48] : [72, sheet + 110],
+/** Tre layer per sorgente: il tratteggio non può dipendere dai dati, quindi si filtra per tipo di tratto. */
+function addLitLines(map: MapLibreMap, source: SourceId, width: number, opacity: number) {
+  const dashes = { solid: undefined, long: [2.8, 1.6], dot: [0.7, 1.7] } as const;
+  for (const [dash, pattern] of Object.entries(dashes)) {
+    map.addLayer({
+      id: `${source}-${dash}`,
+      type: "line",
+      source,
+      filter: ["==", ["get", "dash"], dash],
+      layout: { "line-cap": "butt", "line-join": "round" },
+      paint: { "line-color": ["get", "color"], "line-width": width, "line-opacity": opacity, ...(pattern ? { "line-dasharray": [...pattern] } : {}) },
     });
-  }, [map, result, detent, fitSignal]);
-  return null;
+  }
 }
 
-export default function RouteMap({ origin, destination, result, selectedRouteId, showLayer, detent, fitSignal, onPick, onSelectRoute }: Props) {
-  const routes = result?.routes ?? [];
-  const selected = routes.find((route) => route.id === selectedRouteId);
+/** Porta la base scura di OpenFreeMap nei toni del tema: strade e nomi leggibili, acqua blu notte. */
+function tuneBaseStyle(map: MapLibreMap) {
+  for (const layer of map.getStyle().layers) {
+    const sourceLayer = "source-layer" in layer ? layer["source-layer"] : undefined;
+    if (layer.type === "background") map.setPaintProperty(layer.id, "background-color", "#0b0f17");
+    else if (layer.type === "fill" && sourceLayer === "water") map.setPaintProperty(layer.id, "fill-color", "#13233d");
+    else if (layer.type === "fill" && (sourceLayer === "landuse" || sourceLayer === "landcover")) map.setPaintProperty(layer.id, "fill-color", "#101a22");
+    else if (layer.type === "fill" && sourceLayer === "building") map.setPaintProperty(layer.id, "fill-color", "#161d2b");
+    else if (layer.type === "line" && sourceLayer === "transportation" && layer.id.startsWith("highway")) {
+      const tone = layer.id.includes("casing") ? "#0b0f17" : layer.id.includes("major") || layer.id.includes("motorway") ? "#465270" : "#2f394f";
+      map.setPaintProperty(layer.id, "line-color", tone);
+    } else if (layer.type === "symbol" && layer.layout?.["text-field"]) {
+      map.setPaintProperty(layer.id, "text-color", "#b4bdd0");
+      map.setPaintProperty(layer.id, "text-halo-color", "#0b0f17");
+      map.setPaintProperty(layer.id, "text-halo-width", 1.4);
+    }
+  }
+}
 
-  return (
-    <MapContainer bounds={PILOT_BOUNDS} maxBounds={MAX_BOUNDS} minZoom={14} className="h-full w-full" attributionControl={false} zoomControl={false}>
-      {/* In alto: su telefono il pannello copre il bordo inferiore e l'attribuzione deve restare visibile. */}
-      <AttributionControl position="topleft" prefix={false} />
-      <ZoomControl position="bottomright" />
-      <TileLayer url={TILES.url} attribution={TILES.attribution} />
-      <Rectangle bounds={PILOT_BOUNDS} pathOptions={{ color: "#a3aec4", weight: 1, dashArray: "2 6", fill: false, interactive: false }} />
-      <ClickToPick onPick={onPick} />
-      <FitToRoutes result={result} detent={detent} fitSignal={fitSignal} />
-
-      {showLayer &&
-        result?.layer.litWays.map((way, i) => (
-          <Polyline key={`way-${i}`} positions={way.coords.map(toLatLng)} pathOptions={{ ...LIT_STYLE[way.lit], weight: 1.5, opacity: 0.3, interactive: false }} />
-        ))}
-      {showLayer &&
-        result?.layer.lamps.map((lamp, i) => (
-          <CircleMarker key={`lamp-${i}`} center={toLatLng(lamp)} radius={2.5} pathOptions={{ color: "#ffb347", weight: 0, fillOpacity: 0.45, interactive: false }} />
-        ))}
-
-      {routes
-        .filter((route) => route.id !== selectedRouteId)
-        .map((route) => (
-          <Polyline
-            key={route.id}
-            positions={route.geometry.coordinates.map(toLatLng)}
-            pathOptions={{ color: "#e8ecf4", weight: 4, opacity: 0.35 }}
-            eventHandlers={{ click: () => onSelectRoute(route.id) }}
-          />
-        ))}
-
-      {selected && <Polyline positions={selected.geometry.coordinates.map(toLatLng)} pathOptions={{ color: "#0b0f17", weight: 9, opacity: 0.9, interactive: false }} />}
-      {selected?.segments.map((segment, i) => (
-        <Polyline key={`${selected.id}-${i}`} positions={segment.coords.map(toLatLng)} pathOptions={{ ...LIT_STYLE[segment.lit], weight: 5, lineCap: "butt", interactive: false }} />
-      ))}
-      {selected?.lamps.map((lamp) => (
-        <CircleMarker
-          key={lamp.id}
-          center={toLatLng(lamp.coord)}
-          radius={5}
-          pathOptions={{ color: "#ffb347", weight: 2, fillColor: "#ffb347", fillOpacity: lamp.status === "attributed" ? 1 : 0, interactive: false }}
-        />
-      ))}
-
-      {origin && <Marker position={[origin.lat, origin.lon]} icon={endpointIcon("A")} interactive={false} />}
-      {destination && <Marker position={[destination.lat, destination.lon]} icon={endpointIcon("B")} interactive={false} />}
-    </MapContainer>
+function addLayers(map: MapLibreMap) {
+  tuneBaseStyle(map);
+  const firstLabel = map.getStyle().layers.find((layer) => layer.type === "symbol")?.id;
+  map.addLayer(
+    {
+      id: "nw-buildings-3d",
+      type: "fill-extrusion",
+      source: "openmaptiles",
+      "source-layer": "building",
+      minzoom: 14,
+      paint: {
+        "fill-extrusion-color": ["interpolate", ["linear"], ["coalesce", ["get", "render_height"], 8], 0, "#222c40", 40, "#3a4868"],
+        "fill-extrusion-height": ["coalesce", ["get", "render_height"], 8],
+        "fill-extrusion-base": ["coalesce", ["get", "render_min_height"], 0],
+        "fill-extrusion-opacity": 0.86,
+      },
+    },
+    firstLabel,
   );
+
+  for (const id of SOURCES) map.addSource(id, { type: "geojson", data: collection([]) });
+
+  map.addLayer({ id: "nw-pilot", type: "line", source: "nw-pilot", paint: { "line-color": "#a3aec4", "line-width": 1, "line-dasharray": [2, 6] } });
+  addLitLines(map, "nw-around-ways", 1.5, 0.4);
+  map.addLayer({ id: "nw-around-lamps", type: "circle", source: "nw-around-lamps", paint: { "circle-radius": 2.5, "circle-color": "#ffb347", "circle-opacity": 0.5 } });
+  map.addLayer({
+    id: "nw-alt",
+    type: "line",
+    source: "nw-alt",
+    layout: { "line-cap": "round", "line-join": "round" },
+    paint: { "line-color": "#e8ecf4", "line-width": 4, "line-opacity": 0.4 },
+  });
+  // Bersaglio largo e invisibile: su telefono una linea da 4 px non si tocca.
+  map.addLayer({ id: "nw-alt-hit", type: "line", source: "nw-alt", paint: { "line-color": "#000", "line-width": 26, "line-opacity": 0 } });
+  map.addLayer({
+    id: "nw-selected",
+    type: "line",
+    source: "nw-selected",
+    layout: { "line-cap": "round", "line-join": "round" },
+    paint: { "line-color": "#0b0f17", "line-width": 10, "line-opacity": 0.92 },
+  });
+  addLitLines(map, "nw-segments", 5.5, 1);
+  map.addLayer({
+    id: "nw-lamps-glow",
+    type: "circle",
+    source: "nw-lamps",
+    filter: ["==", ["get", "status"], "attributed"],
+    paint: { "circle-radius": 20, "circle-color": "#ffb347", "circle-opacity": 0.38, "circle-blur": 1 },
+  });
+  map.addLayer({
+    id: "nw-lamps",
+    type: "circle",
+    source: "nw-lamps",
+    paint: {
+      "circle-radius": 4.5,
+      "circle-color": "#ffb347",
+      "circle-opacity": ["case", ["==", ["get", "status"], "attributed"], 1, 0],
+      "circle-stroke-color": "#ffb347",
+      "circle-stroke-width": 2,
+    },
+  });
+}
+
+const litFeature = (coords: LonLat[], lit: keyof typeof LIT_STYLE) => line(coords, { color: LIT_STYLE[lit].color, dash: LIT_STYLE[lit].dash });
+
+function endpointMarker(label: string, at: LatLon, map: MapLibreMap) {
+  const element = document.createElement("span");
+  element.className = "endpoint-marker";
+  element.textContent = label;
+  return new maplibregl.Marker({ element }).setLngLat([at.lon, at.lat]).addTo(map);
+}
+
+export default function RouteMap({ origin, destination, result, selectedRouteId, showLayer, detent, fitSignal, fitPadding, tilted = true, onPick, onSelectRoute }: Props) {
+  const container = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<MapLibreMap | null>(null);
+  const [ready, setReady] = useState(false);
+  // Le callback e lo stato della camera si leggono da ref: la mappa si crea una volta sola.
+  const latest = useRef({ onPick, onSelectRoute, tilted });
+  useEffect(() => {
+    latest.current = { onPick, onSelectRoute, tilted };
+  });
+
+  useEffect(() => {
+    if (!container.current) return;
+    const map = new maplibregl.Map({
+      container: container.current,
+      style: MAP_STYLE_URL,
+      bounds: PILOT_BOUNDS,
+      maxBounds: MAX_BOUNDS,
+      minZoom: 13,
+      maxPitch: 65,
+      pitch: latest.current.tilted ? TILT.pitch : 0,
+      bearing: latest.current.tilted ? TILT.bearing : 0,
+      attributionControl: false,
+    });
+    mapRef.current = map;
+    // In alto: su telefono il pannello copre il bordo inferiore e l'attribuzione deve restare visibile.
+    map.addControl(new maplibregl.AttributionControl({ compact: false }), "top-left");
+    map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "bottom-right");
+
+    map.on("load", () => {
+      addLayers(map);
+      (map.getSource("nw-pilot") as GeoJSONSource).setData(collection([line(PILOT_RING)]));
+      setReady(true);
+    });
+    map.on("click", (event) => {
+      const { x, y } = event.point;
+      const hit = map.getLayer("nw-alt-hit") ? map.queryRenderedFeatures([[x - 4, y - 4], [x + 4, y + 4]], { layers: ["nw-alt-hit"] })[0] : undefined;
+      const id = hit?.properties?.id;
+      if (typeof id === "string") latest.current.onSelectRoute(id);
+      else latest.current.onPick({ lat: event.lngLat.lat, lon: event.lngLat.lng });
+    });
+
+    return () => {
+      mapRef.current = null;
+      setReady(false);
+      map.remove();
+    };
+  }, []);
+
+  // Dati dei percorsi e del layer attorno.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    const set = (id: SourceId, features: Feature[]) => (map.getSource(id) as GeoJSONSource).setData(collection(features));
+    const routes = result?.routes ?? [];
+    const selected = routes.find((route) => route.id === selectedRouteId);
+
+    set("nw-around-ways", showLayer ? (result?.layer.litWays.map((way) => litFeature(way.coords, way.lit)) ?? []) : []);
+    set("nw-around-lamps", showLayer ? (result?.layer.lamps.map((lamp) => point(lamp)) ?? []) : []);
+    set("nw-alt", routes.filter((route) => route !== selected).map((route) => line(route.geometry.coordinates as LonLat[], { id: route.id })));
+    set("nw-selected", selected ? [line(selected.geometry.coordinates as LonLat[])] : []);
+    set("nw-segments", selected?.segments.map((segment) => litFeature(segment.coords, segment.lit)) ?? []);
+    set("nw-lamps", selected?.lamps.map((lamp) => point(lamp.coord, { status: lamp.status })) ?? []);
+  }, [ready, result, selectedRouteId, showLayer]);
+
+  // Marcatori di partenza e arrivo.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    const markers = [origin && endpointMarker("A", origin, map), destination && endpointMarker("B", destination, map)];
+    return () => markers.forEach((marker) => marker && marker.remove());
+  }, [ready, origin, destination]);
+
+  // Inquadra i percorsi nella parte di mappa libera dai comandi, senza cambiare inclinazione.
+  useEffect(() => {
+    const map = mapRef.current;
+    const coords = result?.routes.flatMap((route) => route.geometry.coordinates as LonLat[]) ?? [];
+    if (!map || !ready || !coords.length) return;
+    const bounds = coords.reduce((box, coord) => box.extend(coord), new maplibregl.LngLatBounds(coords[0], coords[0]));
+    map.fitBounds(bounds, { padding: fitPadding ?? webPadding(detent), pitch: map.getPitch(), bearing: map.getBearing(), maxZoom: 17.5, animate: !reducedMotion() });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fitPadding è un oggetto: si confrontano i lati
+  }, [ready, result, detent, fitSignal, fitPadding?.top, fitPadding?.right, fitPadding?.bottom, fitPadding?.left]);
+
+  // Passaggio tra vista inclinata e dall'alto.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    const camera = { pitch: tilted ? TILT.pitch : 0, bearing: tilted ? TILT.bearing : 0 };
+    if (Math.abs(map.getPitch() - camera.pitch) < 0.5 && Math.abs(map.getBearing() - camera.bearing) < 0.5) return;
+    if (reducedMotion()) map.jumpTo(camera);
+    else map.easeTo({ ...camera, duration: 700 });
+  }, [ready, tilted]);
+
+  return <div ref={container} className="h-full w-full" />;
 }

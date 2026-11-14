@@ -4,8 +4,8 @@ const example = "Metro Piramide → Città dell'Altra Economia";
 
 test("la mappa carica con l'attribuzione OpenStreetMap visibile", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".leaflet-control-attribution")).toContainText("OpenStreetMap");
-  await expect(page.locator(".leaflet-control-attribution")).toBeInViewport();
+  await expect(page.locator(".maplibregl-ctrl-attrib")).toContainText("OpenStreetMap");
+  await expect(page.locator(".maplibregl-ctrl-attrib")).toBeInViewport();
   const scrollsSideways = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
   expect(scrollsSideways).toBe(false);
 });

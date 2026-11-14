@@ -1,22 +1,23 @@
 import type { LitValue } from "@/lib/osm/normalize";
 import type { LatLon } from "@/lib/routing/types";
 
-/** Tile standard di OpenStreetMap, scurite via CSS (vedi globals.css): uso leggero da demo, senza prefetch,
- *  con attribuzione sempre visibile, come richiesto dalla tile policy. */
-export const TILES = {
-  url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-  attribution: '&copy; contributori di <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-};
+/** Stile vettoriale scuro di OpenFreeMap (dati OpenStreetMap, schema OpenMapTiles): pubblico, senza chiave,
+ *  con le altezze degli edifici per la vista 3D. L'attribuzione arriva dallo stile e resta sempre visibile. */
+export const MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/dark";
 
-/** Stile delle linee per valore di `lit`: colore e tratteggio insieme, mai solo colore. */
-export const LIT_STYLE: Record<LitValue, { color: string; dashArray?: string }> = {
-  yes: { color: "#ffb347" },
-  automatic: { color: "#ffb347" },
-  "24/7": { color: "#ffb347" },
-  limited: { color: "#ffb347", dashArray: "14 8" },
-  no: { color: "#7aa2e8" },
-  other: { color: "#8f9bb3", dashArray: "3 8" },
-  unknown: { color: "#8f9bb3", dashArray: "3 8" },
+/** Camera della vista inclinata. */
+export const TILT = { pitch: 52, bearing: -17 };
+
+/** Stile delle linee per valore di `lit`: colore e tratteggio insieme, mai solo colore.
+ *  `dash` è il tipo di tratto sulla mappa, `dashArray` lo stesso tratto per l'SVG della legenda. */
+export const LIT_STYLE: Record<LitValue, { color: string; dash: "solid" | "long" | "dot"; dashArray?: string }> = {
+  yes: { color: "#ffb347", dash: "solid" },
+  automatic: { color: "#ffb347", dash: "solid" },
+  "24/7": { color: "#ffb347", dash: "solid" },
+  limited: { color: "#ffb347", dash: "long", dashArray: "14 8" },
+  no: { color: "#7aa2e8", dash: "solid" },
+  other: { color: "#8f9bb3", dash: "dot", dashArray: "3 8" },
+  unknown: { color: "#8f9bb3", dash: "dot", dashArray: "3 8" },
 };
 
 /** Coppie di luoghi reali dell'area pilota (coordinate dai nodi OpenStreetMap con quel nome). */

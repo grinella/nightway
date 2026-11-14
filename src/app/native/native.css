@@ -1,0 +1,5 @@
+/* Pagine caricate dall'app iOS: lo sfondo lo dà il vetro nativo che sta dietro la pagina. */
+html,
+body {
+  background: transparent !important;
+}

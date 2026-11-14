@@ -61,3 +61,19 @@ Font di sistema (San Francisco su Apple, Roboto su Android): l'app deve sembrare
 
 ## Movimento
 Il pannello segue il dito e si aggancia alla posizione più vicina in 280 ms; i controlli rispondono alla pressione con una lieve riduzione di scala. Nessuna animazione d'ingresso. `prefers-reduced-motion` azzera le transizioni.
+
+## App iOS: comandi nativi (dal 14/11/2026)
+
+Nell'app iOS il vetro è il Liquid Glass di sistema, non quello ricostruito in CSS. La struttura segue l'app Musica:
+
+- **Barra a schede** nativa (`UITabBarController`): Mappa, Assistente, Legenda. Si riduce quando la pagina scorre.
+- **Capsula di stato** sopra la barra (`UITabAccessory`), come il mini player: dice cosa fare o riassume il percorso scelto (durata, distanza, luce nota). Un tocco apre il pannello dei percorsi; la X cancella partenza e arrivo.
+- **Pannello dei percorsi**: foglio di sistema a due altezze; a metà altezza la mappa dietro resta utilizzabile.
+- **Pulsanti rotondi** in vetro sulla mappa: vista 3D, dati attorno, inquadra i percorsi.
+- **Assistente e Legenda** sono pagine intere con titolo grande.
+
+Il contenuto di ogni schermata è una pagina web (`/native/map`, `/native/routes`, `/native/assistant`, `/native/info`) con sfondo trasparente; l'involucro (`native/ios/App/App/Shell.swift`) ricopia lo stato dell'app (`src/lib/app-state.ts`) da una pagina all'altra. La versione web nel browser mantiene il vetro in CSS descritto sopra.
+
+## Mappa 3D
+
+MapLibre GL JS con lo stile vettoriale scuro di OpenFreeMap (dati OpenStreetMap, schema OpenMapTiles, senza chiave): vista inclinata, edifici estrusi dalle altezze mappate, alone sui punti luce del percorso scelto. L'attribuzione resta sempre visibile in alto a sinistra.
