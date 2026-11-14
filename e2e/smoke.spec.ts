@@ -49,7 +49,8 @@ test("se l'assistente non è configurato lo dichiara, senza risposte inventate",
   await page.getByRole("tab", { name: "Assistente" }).click();
   await page.getByLabel("Domanda per l'assistente").fill("Da Piramide al Mattatoio");
   await page.getByRole("button", { name: "Invia", exact: true }).click();
-  await expect(page.getByRole("alert").filter({ hasText: "Assistente non configurato" })).toBeVisible();
+  // Il messaggio compare nel pannello e accanto al globo dell'assistente sulla mappa.
+  await expect(page.getByRole("alert").filter({ hasText: "Assistente non configurato" }).first()).toBeVisible();
 });
 
 test("su telefono il pannello si trascina e si richiude con un tocco", async ({ page }, testInfo) => {

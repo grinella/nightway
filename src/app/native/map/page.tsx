@@ -1,7 +1,8 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { pick, selectRoute, useAppState } from "@/lib/app-state";
+import { AgentHost } from "@/components/assistant/AgentHost";
+import { endTour, pick, selectRoute, useAppState } from "@/lib/app-state";
 
 const RouteMap = dynamic(() => import("@/components/map/RouteMap"), { ssr: false });
 
@@ -23,9 +24,12 @@ export default function NativeMapPage() {
         fitSignal={state.fitSignal}
         fitPadding={FIT_PADDING}
         tilted={state.tilted}
+        tour={state.tour}
+        onTourEnd={endTour}
         onPick={pick}
         onSelectRoute={selectRoute}
       />
+      <AgentHost dock="left-3 bottom-[calc(var(--safe-bottom)+0.75rem)]" />
     </main>
   );
 }

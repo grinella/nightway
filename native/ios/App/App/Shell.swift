@@ -20,6 +20,7 @@ struct Chrome {
     var hasRoutes = false
     var showLayer = true
     var tilted = true
+    var tourNonce = 0
 
     init() {}
 
@@ -31,6 +32,7 @@ struct Chrome {
         hasRoutes = raw["hasRoutes"] as? Bool ?? false
         showLayer = raw["showLayer"] as? Bool ?? true
         tilted = raw["tilted"] as? Bool ?? true
+        tourNonce = raw["tourNonce"] as? Int ?? 0
     }
 }
 
@@ -40,6 +42,8 @@ final class StateHub: NSObject, WKScriptMessageHandler, WKUIDelegate, WKNavigati
     private var lastState: String?
     private weak var mapWebView: WKWebView?
     var onChrome: ((Chrome) -> Void)?
+    /// Una pagina ha chiesto qualcosa all'assistente, che vive nella pagina della mappa.
+    var onCommand: ((String) -> Void)?
 
     func makeWebView(path: String, isMap: Bool = false) -> WKWebView {
         let configuration = WKWebViewConfiguration()
@@ -60,8 +64,9 @@ final class StateHub: NSObject, WKScriptMessageHandler, WKUIDelegate, WKNavigati
     }
 
     /// Comando di un pulsante nativo: lo esegue la pagina della mappa, che poi ripubblica lo stato.
-    func send(_ action: String) {
-        mapWebView?.evaluateJavaScript("window.__nwAction && window.__nwAction('\(action)')")
+    func send(_ action: String, argument: String = "") {
+        mapWebView?.callAsyncJavaScript("window.__nwAction && window.__nwAction(name, arg)", arguments: ["name": action, "arg": argument],
+                                        in: nil, in: .page, completionHandler: nil)
     }
 
     private func deliver(_ state: String, to webView: WKWebView) {
@@ -72,6 +77,11 @@ final class StateHub: NSObject, WKScriptMessageHandler, WKUIDelegate, WKNavigati
         guard let body = message.body as? [String: Any], let type = body["type"] as? String else { return }
         if type == "ready" {
             if let lastState, let webView = message.webView { deliver(lastState, to: webView) }
+            return
+        }
+        if type == "command", let name = body["name"] as? String {
+            send(name, argument: body["arg"] as? String ?? "")
+            onCommand?(name)
             return
         }
         guard type == "state", let state = body["state"] as? String else { return }
@@ -287,6 +297,7 @@ final class RootController: UITabBarController {
     private let hub = StateHub()
     private lazy var map = MapController(hub: hub)
     private lazy var routesSheet = RoutesSheetController(hub: hub)
+    private var tourNonce = 0
     private lazy var status = StatusAccessory(onReset: { [hub] in hub.send("reset") })
 
     override func viewDidLoad() {
@@ -308,8 +319,15 @@ final class RootController: UITabBarController {
         bottomAccessory = UITabAccessory(contentView: status)
 
         hub.onChrome = { [weak self] chrome in
-            self?.status.apply(chrome)
-            self?.map.apply(chrome)
+            guard let self else { return }
+            status.apply(chrome)
+            map.apply(chrome)
+            // Parte un volo sul percorso: il pannello si chiude e si torna alla mappa.
+            if chrome.tourNonce != tourNonce, chrome.tourNonce != 0 { showMap() }
+            tourNonce = chrome.tourNonce
+        }
+        hub.onCommand = { [weak self] name in
+            if name == "voice" { self?.showMap() }
         }
         // Carica subito le pagine: al primo tocco pannello e schede sono già pronti.
         for controller in [routesSheet, assistant.viewControllers[0], info.viewControllers[0]] { controller.loadViewIfNeeded() }
@@ -325,11 +343,11 @@ final class RootController: UITabBarController {
     private func runDebugScript() {
         let environment = ProcessInfo.processInfo.environment
         DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [self] in
-            if let script = environment["NW_DEBUG_JS"] { routesSheet.webView.evaluateJavaScript(script) }
+            if let script = environment["NW_DEBUG_JS"], !script.isEmpty { routesSheet.webView.evaluateJavaScript(script) }
             if let index = environment["NW_DEBUG_TAB"].flatMap(Int.init) { selectedTab = tabs[index] }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [self] in
-            if let detent = environment["NW_DEBUG_SHEET"] {
+            if let detent = environment["NW_DEBUG_SHEET"], !detent.isEmpty {
                 openRoutes()
                 if detent == "large" { routesSheet.sheetPresentationController?.selectedDetentIdentifier = .large }
             }
@@ -342,6 +360,11 @@ final class RootController: UITabBarController {
         let navigation = UINavigationController(rootViewController: controller)
         navigation.navigationBar.prefersLargeTitles = true
         return navigation
+    }
+
+    private func showMap() {
+        if presentedViewController != nil { dismiss(animated: true) }
+        selectedTab = tabs.first
     }
 
     private func openRoutes() {

@@ -18,14 +18,14 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 
 const number = (description: string) => ({ type: "number", description });
 const string = (description: string) => ({ type: "string", description });
-const clientTool = (name: string, description: string, properties: Record<string, unknown>) => ({
+const clientTool = (name: string, description: string, properties: Record<string, unknown>, required = Object.keys(properties)) => ({
   tool_config: {
     type: "client",
     name,
     description,
     expects_response: true,
     response_timeout_secs: 45,
-    parameters: { type: "object", properties, required: Object.keys(properties) },
+    parameters: { type: "object", properties, required },
   },
 });
 
@@ -50,6 +50,15 @@ const TOOLS = [
     "route_streets",
     "Dettaglio strada per strada di un percorso già calcolato con compare_routes: nome della strada, valore di lit dichiarato (unknown significa tag assente, non buio), tipo di infrastruttura pedonale e metri. Usalo per dire dove mancano i dati.",
     { route_id: string("Id del percorso restituito da compare_routes, ad esempio route-1") },
+  ),
+  clientTool(
+    "show_route",
+    "Fa volare la camera della mappa dell'utente lungo un percorso già calcolato, selezionandolo. Con street inquadra solo quella strada del percorso. Chiamalo subito prima di descrivere un percorso o una strada, così l'utente vede ciò di cui parli.",
+    {
+      route_id: string("Id del percorso restituito da compare_routes, ad esempio route-1"),
+      street: string("Facoltativo: nome della strada esattamente come restituito da route_streets, per inquadrare solo quel tratto"),
+    },
+    ["route_id"],
   ),
 ];
 

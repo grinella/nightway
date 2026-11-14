@@ -10,6 +10,19 @@ import type { RoutesResponse } from "@/lib/schemas/routes";
 
 export type Status = { kind: "idle" } | { kind: "loading" } | { kind: "error"; message: string };
 
+export type AgentLine = { role: "user" | "agent"; text: string };
+
+/** Conversazione con l'assistente: vive nella pagina della mappa, le altre schermate la leggono da qui. */
+export type AgentState = {
+  phase: "off" | "connecting" | "listening" | "speaking";
+  mode: "voice" | "text";
+  lines: AgentLine[];
+  error: string;
+};
+
+/** Volo di camera lungo un percorso, o su una sola strada del percorso. */
+export type Tour = { routeId: string; street: string | null; nonce: number };
+
 export type AppState = {
   origin: LatLon | null;
   destination: LatLon | null;
@@ -21,6 +34,8 @@ export type AppState = {
   tilted: boolean;
   /** Cambia quando si chiede di inquadrare di nuovo i percorsi. */
   fitSignal: number;
+  tour: Tour | null;
+  agent: AgentState;
 };
 
 const INITIAL: AppState = {
@@ -32,9 +47,11 @@ const INITIAL: AppState = {
   showLayer: true,
   tilted: true,
   fitSignal: 0,
+  tour: null,
+  agent: { phase: "off", mode: "text", lines: [], error: "" },
 };
 
-const CLEARED = { origin: null, destination: null, result: null, selectedRouteId: null, status: { kind: "idle" } } satisfies Partial<AppState>;
+const CLEARED = { origin: null, destination: null, result: null, selectedRouteId: null, tour: null, status: { kind: "idle" } } satisfies Partial<AppState>;
 
 let state = INITIAL;
 const listeners = new Set<() => void>();
@@ -110,18 +127,32 @@ export function adoptAnalysis(analysis: RoutesResponse) {
   showAnalysis(analysis, { origin: { lat: startLat, lon: startLon }, destination: { lat: endLat, lon: endLon } });
 }
 
-export const selectRoute = (id: string) => update({ selectedRouteId: id });
+export const selectRoute = (id: string) => update({ selectedRouteId: id, tour: null });
+export const getState = () => state;
+export const updateAgent = (patch: Partial<AgentState>) => update({ agent: { ...state.agent, ...patch } });
+export const addAgentLine = (line: AgentLine) => updateAgent({ lines: [...state.agent.lines, line] });
+
+/** Sorvola un percorso (o una sua strada) e lo seleziona. Restituisce `false` se il percorso non esiste. */
+export function startTour(routeId: string, street: string | null = null): boolean {
+  if (!state.result?.routes.some((route) => route.id === routeId)) return false;
+  update({ selectedRouteId: routeId, tour: { routeId, street, nonce: (state.tour?.nonce ?? 0) + 1 } });
+  return true;
+}
+export const endTour = () => update({ tour: null });
 export const toggleLayer = () => update({ showLayer: !state.showLayer });
 export const toggleTilt = () => update({ tilted: !state.tilted });
 export const requestFit = () => update({ fitSignal: state.fitSignal + 1 });
 
 // ——— Involucro nativo iOS ———
 
-type ShellMessage = { type: "ready" } | { type: "state"; state: string; chrome: ReturnType<typeof nativeChrome> };
+type ShellMessage =
+  | { type: "ready" }
+  | { type: "state"; state: string; chrome: ReturnType<typeof nativeChrome> }
+  | { type: "command"; name: string; arg: string };
 type ShellWindow = Window & {
   webkit?: { messageHandlers?: { nightway?: { postMessage: (message: ShellMessage) => void } } };
   __nwReceive?: (json: string) => void;
-  __nwAction?: (name: string) => void;
+  __nwAction?: (name: string, arg?: string) => void;
 };
 
 const shell = () => (typeof window === "undefined" ? undefined : (window as ShellWindow).webkit?.messageHandlers?.nightway);
@@ -144,6 +175,7 @@ export function nativeChrome(s: AppState) {
     hasRoutes: routes.length > 0,
     showLayer: s.showLayer,
     tilted: s.tilted,
+    tourNonce: s.tour?.nonce ?? 0,
   };
 }
 
@@ -159,12 +191,25 @@ function publish() {
   });
 }
 
-const SHELL_ACTIONS: Record<string, () => void> = { reset, toggleLayer, toggleTilt, fit: requestFit };
+type Handler = (arg?: string) => void;
+const handlers: Record<string, Handler> = { reset, toggleLayer, toggleTilt, fit: requestFit };
+
+/** La pagina che ospita l'assistente registra qui i suoi comandi (`ask`, `voice`). */
+export function registerCommands(commands: Record<string, Handler>) {
+  Object.assign(handlers, commands);
+  return () => Object.keys(commands).forEach((name) => delete handlers[name]);
+}
+
+/** Esegue un comando qui se questa pagina lo gestisce, altrimenti lo passa all'involucro, che lo gira alla mappa. */
+export function command(name: string, arg = "") {
+  if (handlers[name]) handlers[name](arg);
+  else shell()?.postMessage({ type: "command", name, arg });
+}
 
 /** Collega la pagina all'involucro: riceve lo stato delle altre schermate e i comandi dei pulsanti nativi. */
 export function connectNativeShell() {
   const target = window as ShellWindow;
   target.__nwReceive = (json) => update(JSON.parse(json) as AppState, true);
-  target.__nwAction = (name) => SHELL_ACTIONS[name]?.();
+  target.__nwAction = (name, arg) => handlers[name]?.(arg);
   shell()?.postMessage({ type: "ready" });
 }

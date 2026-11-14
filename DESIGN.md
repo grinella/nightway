@@ -77,3 +77,7 @@ Il contenuto di ogni schermata è una pagina web (`/native/map`, `/native/routes
 ## Mappa 3D
 
 MapLibre GL JS con lo stile vettoriale scuro di OpenFreeMap (dati OpenStreetMap, schema OpenMapTiles, senza chiave): vista inclinata, edifici estrusi dalle altezze mappate, alone sui punti luce del percorso scelto. L'attribuzione resta sempre visibile in alto a sinistra.
+
+## L'assistente sulla mappa
+
+L'assistente non sta in un pannello: è un globo al sodio agganciato alla mappa. Un tocco avvia o chiude la conversazione a voce; fermo quando è spento, respira in ascolto, pulsa mentre parla. Accanto, una didascalia riporta ciò che sta dicendo. Quando descrive un percorso o una strada fa volare la camera lungo il tracciato (strumento `show_route`), con un globo più piccolo che fa da guida; lo stesso volo parte da «Guarda il percorso» nel pannello, che intanto si chiude. Un tocco sulla mappa interrompe il volo. La scheda Assistente è la trascrizione, con il campo per scrivere.

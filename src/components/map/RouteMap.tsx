@@ -7,6 +7,7 @@ import { detentHeight, type Detent } from "@/components/layout/BottomSheet";
 import { PILOT } from "@/lib/config";
 import type { LonLat } from "@/lib/geo/planar";
 import { LIT_STYLE, MAP_STYLE_URL, TILT } from "@/lib/map-config";
+import type { Tour } from "@/lib/app-state";
 import type { LatLon } from "@/lib/routing/types";
 import type { RoutesResponse } from "@/lib/schemas/routes";
 
@@ -26,6 +27,9 @@ type Props = {
   fitPadding?: Padding;
   /** Vista inclinata con edifici in 3D (predefinita) oppure dall'alto. */
   tilted?: boolean;
+  /** Volo di camera in corso lungo un percorso o una sua strada. */
+  tour?: Tour | null;
+  onTourEnd?: () => void;
   onPick: (point: LatLon) => void;
   onSelectRoute: (id: string) => void;
 };
@@ -159,6 +163,84 @@ function addLayers(map: MapLibreMap) {
   });
 }
 
+const TO_RAD = Math.PI / 180;
+const metersBetween = (a: LonLat, b: LonLat) => Math.hypot((b[0] - a[0]) * Math.cos(a[1] * TO_RAD), b[1] - a[1]) * 111_320;
+const bearingBetween = (a: LonLat, b: LonLat) => Math.atan2((b[0] - a[0]) * Math.cos(a[1] * TO_RAD), b[1] - a[1]) / TO_RAD;
+
+/** Linea misurata: restituisce il punto a una certa distanza dall'inizio. */
+function measuredPath(coords: LonLat[]) {
+  const marks = [0];
+  for (let i = 1; i < coords.length; i++) marks.push(marks[i - 1] + metersBetween(coords[i - 1], coords[i]));
+  const total = marks[marks.length - 1];
+  function at(meters: number): LonLat {
+    const d = Math.min(total, Math.max(0, meters));
+    let i = 1;
+    while (i < marks.length - 1 && marks[i] < d) i++;
+    const span = marks[i] - marks[i - 1] || 1;
+    const t = (d - marks[i - 1]) / span;
+    return [coords[i - 1][0] + (coords[i][0] - coords[i - 1][0]) * t, coords[i - 1][1] + (coords[i][1] - coords[i - 1][1]) * t];
+  }
+  return { total, at };
+}
+
+/** Sorvola la linea con la camera bassa che segue la direzione di marcia; un globo fa da guida.
+ *  Restituisce la funzione che interrompe il volo. */
+function flyAlong(map: MapLibreMap, coords: LonLat[], padding: Padding, onDone: () => void) {
+  const path = measuredPath(coords);
+  // Il marcatore lo posiziona MapLibre: il globo sta in un elemento interno per non contendergli lo stile.
+  const element = document.createElement("div");
+  element.innerHTML = '<span class="guide-orb"><span></span></span>';
+  const guide = new maplibregl.Marker({ element }).setLngLat(coords[0]).addTo(map);
+  const duration = Math.min(20_000, Math.max(7_000, path.total * 13));
+  const lookAhead = Math.max(40, path.total * 0.08);
+  let frame = 0;
+  let bearing = bearingBetween(coords[0], path.at(lookAhead));
+  let startedAt = 0;
+  let stopped = false;
+
+  function stop() {
+    if (stopped) return;
+    stopped = true;
+    cancelAnimationFrame(frame);
+    map.off("moveend", begin);
+    guide.remove();
+    for (const gesture of GESTURES) map.off(gesture, interrupt);
+  }
+  function interrupt() {
+    stop();
+    onDone();
+  }
+  function step(now: number) {
+    startedAt ||= now;
+    const progress = Math.min(1, (now - startedAt) / duration);
+    const meters = progress * path.total;
+    const here = path.at(meters);
+    // La direzione cambia con dolcezza: agli incroci la camera curva, non scatta.
+    const turn = ((bearingBetween(here, path.at(meters + lookAhead)) - bearing + 540) % 360) - 180;
+    if (meters + 5 < path.total) bearing += turn * 0.045;
+    guide.setLngLat(here);
+    map.jumpTo({ center: here, bearing, pitch: 62, zoom: 17.4, padding });
+    if (progress < 1) {
+      frame = requestAnimationFrame(step);
+      return;
+    }
+    stop();
+    const bounds = coords.reduce((box, coord) => box.extend(coord), new maplibregl.LngLatBounds(coords[0], coords[0]));
+    map.fitBounds(bounds, { padding, pitch: TILT.pitch, bearing: map.getBearing(), maxZoom: 17.5, duration: 1800 });
+    onDone();
+  }
+  function begin() {
+    if (!stopped) frame = requestAnimationFrame(step);
+  }
+
+  const GESTURES = ["dragstart", "wheel", "touchstart"] as const;
+  for (const gesture of GESTURES) map.on(gesture, interrupt);
+  // Prima il volo, poi l'ascolto: avviarlo chiude l'animazione precedente, che non deve far partire la guida.
+  map.flyTo({ center: coords[0], bearing, pitch: 62, zoom: 17.4, padding, duration: 1600 });
+  map.once("moveend", begin);
+  return stop;
+}
+
 const litFeature = (coords: LonLat[], lit: keyof typeof LIT_STYLE) => line(coords, { color: LIT_STYLE[lit].color, dash: LIT_STYLE[lit].dash });
 
 function endpointMarker(label: string, at: LatLon, map: MapLibreMap) {
@@ -168,14 +250,16 @@ function endpointMarker(label: string, at: LatLon, map: MapLibreMap) {
   return new maplibregl.Marker({ element }).setLngLat([at.lon, at.lat]).addTo(map);
 }
 
-export default function RouteMap({ origin, destination, result, selectedRouteId, showLayer, detent, fitSignal, fitPadding, tilted = true, onPick, onSelectRoute }: Props) {
+export default function RouteMap({ origin, destination, result, selectedRouteId, showLayer, detent, fitSignal, fitPadding, tilted = true, tour = null, onTourEnd, onPick, onSelectRoute }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const [ready, setReady] = useState(false);
+  // Il tocco che interrompe un volo non deve anche scegliere un punto sulla mappa.
+  const tourEndedAt = useRef(-Infinity);
   // Le callback e lo stato della camera si leggono da ref: la mappa si crea una volta sola.
-  const latest = useRef({ onPick, onSelectRoute, tilted });
+  const latest = useRef({ onPick, onSelectRoute, onTourEnd, tilted, result, detent, fitPadding });
   useEffect(() => {
-    latest.current = { onPick, onSelectRoute, tilted };
+    latest.current = { onPick, onSelectRoute, onTourEnd, tilted, result, detent, fitPadding };
   });
 
   useEffect(() => {
@@ -202,6 +286,7 @@ export default function RouteMap({ origin, destination, result, selectedRouteId,
       setReady(true);
     });
     map.on("click", (event) => {
+      if (performance.now() - tourEndedAt.current < 600) return;
       const { x, y } = event.point;
       const hit = map.getLayer("nw-alt-hit") ? map.queryRenderedFeatures([[x - 4, y - 4], [x + 4, y + 4]], { layers: ["nw-alt-hit"] })[0] : undefined;
       const id = hit?.properties?.id;
@@ -259,6 +344,27 @@ export default function RouteMap({ origin, destination, result, selectedRouteId,
     if (reducedMotion()) map.jumpTo(camera);
     else map.easeTo({ ...camera, duration: 700 });
   }, [ready, tilted]);
+
+  // Volo lungo il percorso (o lungo una sua strada) chiesto dall'assistente o dal pannello.
+  useEffect(() => {
+    const map = mapRef.current;
+    const route = tour && latest.current.result?.routes.find((candidate) => candidate.id === tour.routeId);
+    if (!map || !ready || !tour || !route) return;
+    const stretch = tour.street ? route.segments.filter((segment) => segment.streetName === tour.street).flatMap((segment) => segment.coords) : [];
+    const coords = (stretch.length > 1 ? stretch : route.geometry.coordinates) as LonLat[];
+    const padding = latest.current.fitPadding ?? webPadding(latest.current.detent);
+    const done = () => {
+      tourEndedAt.current = performance.now();
+      latest.current.onTourEnd?.();
+    };
+    if (reducedMotion()) {
+      const bounds = coords.reduce((box, coord) => box.extend(coord), new maplibregl.LngLatBounds(coords[0], coords[0]));
+      map.fitBounds(bounds, { padding, maxZoom: 17.5, animate: false });
+      done();
+      return;
+    }
+    return flyAlong(map, coords, padding, done);
+  }, [ready, tour]);
 
   return <div ref={container} className="h-full w-full" />;
 }

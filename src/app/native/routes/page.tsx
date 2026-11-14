@@ -2,7 +2,7 @@
 
 import { RouteComparison } from "@/components/routes/RouteComparison";
 import { RouteExamples } from "@/components/routes/RouteExamples";
-import { analyze, selectRoute, useAppState } from "@/lib/app-state";
+import { analyze, selectRoute, startTour, useAppState } from "@/lib/app-state";
 
 export default function NativeRoutesPage() {
   const { result, selectedRouteId, status } = useAppState();
@@ -15,7 +15,7 @@ export default function NativeRoutesPage() {
           {status.message}
         </p>
       )}
-      {result && <RouteComparison result={result} selectedRouteId={selectedRouteId} onSelect={selectRoute} />}
+      {result && <RouteComparison result={result} selectedRouteId={selectedRouteId} onSelect={selectRoute} onTour={startTour} />}
       <RouteExamples hasResult={result !== null} disabled={status.kind === "loading"} onChoose={analyze} />
     </main>
   );

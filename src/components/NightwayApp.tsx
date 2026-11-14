@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useState, type ReactNode } from "react";
+import { AgentHost } from "@/components/assistant/AgentHost";
 import { AssistantPanel } from "@/components/assistant/AssistantPanel";
 import { BottomSheet, type Detent } from "@/components/layout/BottomSheet";
 import { AboutCard } from "@/components/routes/AboutCard";
@@ -12,7 +13,6 @@ import { CloseIcon, FitIcon, InfoIcon, LayersIcon, RouteIcon, VoiceIcon } from "
 import { LensFilter } from "@/components/ui/LensFilter";
 import * as app from "@/lib/app-state";
 import type { LatLon } from "@/lib/routing/types";
-import type { RoutesResponse } from "@/lib/schemas/routes";
 
 const RouteMap = dynamic(() => import("@/components/map/RouteMap"), {
   ssr: false,
@@ -29,7 +29,7 @@ const TABS: { id: Tab; label: string; title: string; icon: ReactNode }[] = [
 
 export function NightwayApp() {
   const state = app.useAppState();
-  const { origin, destination, result, selectedRouteId, status, showLayer, fitSignal } = state;
+  const { origin, destination, result, selectedRouteId, status, showLayer, fitSignal, tour } = state;
   const [tab, setTab] = useState<Tab>("routes");
   const [detent, setDetent] = useState<Detent>("half");
 
@@ -50,9 +50,11 @@ export function NightwayApp() {
     if (outcome === "analyzing") raiseSheet();
   }
 
-  function adoptAgentAnalysis(analysis: RoutesResponse) {
-    app.adoptAnalysis(analysis);
-    raiseSheet();
+  // Quando parte un volo sul percorso (dal pannello o dall'assistente) il pannello si abbassa: la mappa è la protagonista.
+  const [seenTour, setSeenTour] = useState(0);
+  if (tour && tour.nonce !== seenTour) {
+    setSeenTour(tour.nonce);
+    setDetent("peek");
   }
 
   function openTab(next: Tab) {
@@ -72,6 +74,8 @@ export function NightwayApp() {
         showLayer={showLayer}
         detent={detent}
         fitSignal={fitSignal}
+        tour={tour}
+        onTourEnd={app.endTour}
         onPick={pick}
         onSelectRoute={app.selectRoute}
       />
@@ -113,6 +117,8 @@ export function NightwayApp() {
         )}
       </div>
 
+      <AgentHost dock="right-3 top-[calc(var(--safe-top)+13.5rem)] flex-row-reverse items-start lg:right-4 lg:top-[8.5rem]" />
+
       <BottomSheet
         detent={detent}
         onDetentChange={setDetent}
@@ -120,12 +126,12 @@ export function NightwayApp() {
         summary={tab === "routes" && result ? (result.routes.length === 1 ? "1 percorso" : `${result.routes.length} percorsi`) : undefined}
       >
         <div className={`grid gap-5 ${hidden("routes")}`}>
-          {result && <RouteComparison result={result} selectedRouteId={selectedRouteId} onSelect={app.selectRoute} />}
+          {result && <RouteComparison result={result} selectedRouteId={selectedRouteId} onSelect={app.selectRoute} onTour={app.startTour} />}
           <RouteExamples hasResult={result !== null} disabled={status.kind === "loading"} onChoose={analyze} />
         </div>
 
         <div className={hidden("assistant")}>
-          <AssistantPanel origin={origin} destination={destination} result={result} onAnalysis={adoptAgentAnalysis} />
+          <AssistantPanel />
         </div>
 
         <div className={`grid gap-4 ${hidden("info")}`}>

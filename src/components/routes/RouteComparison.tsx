@@ -4,7 +4,7 @@ import { formatDistance, formatMinutes, formatPercent } from "@/lib/format";
 import type { AnalyzedRoute, RoutesResponse } from "@/lib/schemas/routes";
 import { spokenSummary } from "@/lib/summary";
 
-type Props = { result: RoutesResponse; selectedRouteId: string | null; onSelect: (id: string) => void };
+type Props = { result: RoutesResponse; selectedRouteId: string | null; onSelect: (id: string) => void; onTour: (id: string) => void };
 
 function CoverageBar({ fraction }: { fraction: number }) {
   return (
@@ -41,7 +41,7 @@ function RouteSummary({ route, index }: { route: AnalyzedRoute; index: number })
   );
 }
 
-export function RouteComparison({ result, selectedRouteId, onSelect }: Props) {
+export function RouteComparison({ result, selectedRouteId, onSelect, onTour }: Props) {
   return (
     <section aria-labelledby="routes-title" className="grid gap-3">
       <div className="flex flex-wrap items-center justify-end gap-2">
@@ -65,7 +65,10 @@ export function RouteComparison({ result, selectedRouteId, onSelect }: Props) {
                 <RouteSummary route={route} index={index} />
               </button>
               {selected && (
-                <div className="px-4 pb-4">
+                <div className="grid gap-4 px-4 pb-4">
+                  <button type="button" onClick={() => onTour(route.id)} className="btn btn-primary w-full">
+                    Guarda il percorso
+                  </button>
                   <RouteDetails route={route} evidence={result.evidence} visionMessage={result.vision.message} />
                 </div>
               )}

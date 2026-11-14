@@ -306,3 +306,121 @@ div.maplibregl-map .maplibregl-ctrl-bottom-right {
   border: 2px solid var(--color-night);
   box-shadow: 0 4px 12px rgb(0 0 0 / 0.5);
 }
+
+/* ——— L'assistente sulla mappa ——— */
+
+.agent-dock {
+  position: fixed;
+  z-index: 1090;
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.agent-dock > * {
+  pointer-events: auto;
+}
+
+/* Globo al sodio: fermo quando è spento, respira in ascolto, pulsa mentre parla. */
+.agent-orb,
+.guide-orb {
+  position: relative;
+  display: grid;
+  flex: none;
+  place-items: center;
+  border-radius: 999px;
+}
+
+.agent-orb {
+  width: 60px;
+  height: 60px;
+}
+
+.guide-orb {
+  width: 34px;
+  height: 34px;
+  pointer-events: none;
+}
+
+.agent-orb > span,
+.guide-orb > span {
+  width: 62%;
+  height: 62%;
+  border-radius: inherit;
+  background: radial-gradient(circle at 35% 30%, #fff3dc 0%, #ffc978 30%, #ffb347 58%, #c9761a 100%);
+  box-shadow:
+    0 0 0 5px rgb(255 179 71 / 0.22),
+    0 0 26px 6px rgb(255 179 71 / 0.5);
+}
+
+.agent-orb[data-phase="off"] > span {
+  box-shadow:
+    0 0 0 5px rgb(255 179 71 / 0.16),
+    0 0 14px 2px rgb(255 179 71 / 0.3);
+}
+
+.agent-orb::before,
+.guide-orb::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1.5px solid rgb(255 179 71 / 0.55);
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .agent-orb[data-phase="connecting"] > span {
+    animation: orb-breathe 900ms ease-in-out infinite alternate;
+  }
+
+  .agent-orb[data-phase="listening"] > span {
+    animation: orb-breathe 1800ms ease-in-out infinite alternate;
+  }
+
+  .agent-orb[data-phase="speaking"] > span {
+    animation: orb-breathe 420ms ease-in-out infinite alternate;
+  }
+
+  .agent-orb[data-phase="speaking"]::before,
+  .agent-orb[data-phase="listening"]::before,
+  .guide-orb::before {
+    animation: orb-ring 1600ms ease-out infinite;
+  }
+}
+
+@keyframes orb-breathe {
+  from {
+    transform: scale(0.9);
+  }
+  to {
+    transform: scale(1.08);
+  }
+}
+
+@keyframes orb-ring {
+  from {
+    opacity: 0.9;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.5);
+  }
+}
+
+.agent-caption {
+  max-width: min(17.5rem, calc(100vw - 6.5rem));
+  border-radius: 20px;
+  padding: 10px 14px;
+  font-size: 0.9375rem;
+  line-height: 1.35;
+}
+
+.agent-caption > span {
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
